@@ -5,6 +5,7 @@ const Panel = {
   /* ---- Block (session) editor: changes apply immediately, with validation and undo ---- */
   editSession(id, { closing = false } = {}) {
     const s0 = sessionById(id); if (!s0) return;
+    const idOf = id;
     const key = 'session:' + id;
     const body = h('div', { class: 'stack' });
     const errBox = h('div', { class: 'errors', hidden: true });
@@ -55,6 +56,12 @@ const Panel = {
       const note = noteEditor(s.note_md, { onChange: debounce((v) => { const cur = sessionById(id); if (cur && cur.note_md !== v) updateSession(id, { note_md: v }, { undoable: false }); }, 500) });
       noteTa = note.ta;
       const shortHint = closing && tm.net < 60000 ? h('p', { class: 'hint warn' }, 'Less than 1 minute of net study — discard this block?') : null;
+      const rating = s.meta?.rating || null;
+      const rateBtn = ([rid, label, color]) => h('button', {
+        class: 'rate' + (rating === rid ? ' on' : ''), type: 'button', style: { '--c': color },
+        onClick: () => { const sess = sessionById(idOf); if (!sess) return; const meta = { ...(sess.meta || {}) }; if (rating === rid) delete meta.rating; else meta.rating = rid; updateSession(idOf, { meta }, { undoable: false }); },
+      }, label);
+      const rateRow = h('div', { class: 'field' }, h('span', null, 'How did it go?'), h('div', { class: 'rate-row' }, ...RATINGS.map(rateBtn)));
       const actions = h('div', { class: 'row', style: { marginTop: '6px' } },
         closing ? h('button', { class: 'btn primary', onClick: () => Drawer.close() }, 'Save') : null,
         closing ? h('button', { class: 'btn', onClick: () => { Drawer.close(); try { Timer.start(s.theme); } catch (e) { toast(e.message, { error: true }); } } }, 'Save and start another') : null,
@@ -68,7 +75,7 @@ const Panel = {
           h('label', { class: 'field' }, h('span', null, live ? 'End (running)' : 'End'), endIn), h('label', { class: 'field' }, h('span', null, 'Length (min)'), durIn),
           h('label', { class: 'field' }, h('span', null, 'Breaks (min)'), pauseIn),
           h('div', { class: 'field' }, h('span', null, 'Source'), h('div', { class: 'muted small', style: { paddingTop: '8px' } }, s.source === 'timer' ? '⏱ timer' : '✎ manual', s.meta?.autoclosed ? ' · ⚠ closed automatically' : ''))),
-        presets,
+        presets, rateRow,
         h('div', { class: 'field' }, h('span', null, 'Note'), note.el),
         errBox, actions);
     };
@@ -133,6 +140,7 @@ const Panel = {
       h('label', { class: 'field' }, h('span', null, 'Your name (shown on the report)'), h('input', { type: 'text', value: s.name, maxlength: 60, onChange: (e) => updateSettings({ name: e.target.value.trim() }) })),
       h('h3', null, 'Study themes'), themeList, h('div', { class: 'row' }, newName, h('button', { class: 'btn sm', onClick: addTheme }, '+ Add')),
       h('h3', null, 'Timer'),
+      h('label', { class: 'field inline' }, h('span', null, 'Guided breaks (pause and resume by themselves)'), h('input', { type: 'checkbox', class: 'switch', checked: s.guided_breaks !== false, onChange: (e) => updateSettings({ guided_breaks: e.target.checked }) })),
       h('label', { class: 'field inline' }, h('span', null, 'Break length (min)'), h('select', { style: { width: 'auto' }, onChange: (e) => updateSettings({ break_len_min: +e.target.value }) }, ...[10, 15, 30].map((v) => h('option', { value: v, selected: v === (s.break_len_min || 15) }, v)))),
       num('Close a forgotten break after (min)', 'pause_autostop_min', 5, 600), num('Daily minimum for the streak (min)', 'streak_min_min', 1, 600),
       h('label', { class: 'field inline' }, h('span', null, 'Sound on break reminder and stop'), h('input', { type: 'checkbox', class: 'switch', checked: !!s.sound, onChange: (e) => updateSettings({ sound: e.target.checked }) })), notifRow,
@@ -146,7 +154,8 @@ const Panel = {
       h('label', { class: 'field inline' }, h('span', null, 'Snap (min)'), h('select', { style: { width: 'auto' }, onChange: (e) => updateSettings({ snap_min: +e.target.value }) }, ...[5, 10, 15, 30].map((v) => h('option', { value: v, selected: v === s.snap_min }, v)))),
       h('h3', null, 'Appearance'),
       h('label', { class: 'field inline' }, h('span', null, 'Background picture'), h('select', { style: { width: 'auto' }, onChange: (e) => { updateSettings({ bg_strength: e.target.value }); Background.strength(); } }, ...[['soft', 'Discreet'], ['medium', 'Medium'], ['strong', 'Strong']].map(([v, l]) => h('option', { value: v, selected: v === (s.bg_strength || 'medium') }, l)))),
-      h('p', { class: 'muted small' }, 'Pictures live in assets/bg/ (named 1, 2, 3… with .webp/.jpg/.png). One is drawn per day.'),
+      h('div', { class: 'row' }, h('button', { class: 'btn sm', onClick: () => Background.next() }, '🖼 Next picture'), h('button', { class: 'btn sm ghost', onClick: () => Background.useDaily() }, "Day's pick")),
+      h('p', { class: 'muted small' }, 'Pictures live in assets/bg/ (named 1, 2, 3… with .webp/.jpg/.png). One is drawn per day; the picture you choose here lasts until tomorrow.'),
       h('h3', null, 'Focus mode'),
       h('label', { class: 'field inline' }, h('span', null, 'Background animation'), h('select', { style: { width: 'auto' }, onChange: (e) => updateSettings({ focus_anim: e.target.value }) }, ...[['aurora', 'Aurora'], ['ondas', 'Waves'], ['estrelas', 'Stars'], ['nenhuma', 'None']].map(([v, l]) => h('option', { value: v, selected: v === s.focus_anim }, l)))),
       h('h3', null, 'Your data'),

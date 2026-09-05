@@ -29,6 +29,25 @@ const ReportView = {
       h('section', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', null, 'Study calendar'), segmented([[30, '30 days'], [60, '60 days'], [90, '90 days']], this.days, (v) => { this.days = v; this.render(); }, 'sm')),
         h('p', { class: 'sub' }, 'Rows = days, columns = hours.'), h('div', { class: 'tl-wrap' }, Calendar.buildGrid(days, false)),
         h('div', { class: 'legend' }, ...themes().map((th) => h('span', null, h('i', { style: { background: th.color } }), th.name)))),
+      h('section', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', null, 'Achievements')),
+        (() => { const list = achievements(); const got = list.filter((a) => a.done).length;
+          return frag(h('p', { class: 'sub' }, `${got} of ${list.length} unlocked`),
+            h('div', { class: 'ach-grid' }, ...list.map((a) => h('div', { class: 'ach' + (a.done ? ' done' : ''), title: a.desc },
+              h('span', { class: 'ach-ic' }, a.icon),
+              h('div', { class: 'grow' }, h('b', null, a.name), h('div', { class: 'muted small' }, a.desc),
+                a.done ? null : h('div', { class: 'progress sm' }, h('i', { style: { width: Math.round(a.pct * 100) + '%' } })))))));
+        })()),
+      (() => { const rs = ratingStats(days[0], null); if (!rs.total) return null;
+        const best = Array.from(rs.byHour.entries()).filter(([, v]) => v.n >= 2).sort((a, b) => b[1].sum / b[1].n - a[1].sum / a[1].n)[0];
+        return h('section', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', null, 'Focus quality')),
+          h('p', { class: 'sub' }, `${rs.total} rated blocks in the last ${this.days} days${best ? ` · sharpest around ${pad2(best[0])}:00` : ''}`),
+          h('div', { class: 'bars' }, ...RATINGS.map(([id, label, color]) => {
+            const n = rs.counts[id]; const pct = rs.total ? (n / rs.total) * 100 : 0;
+            return h('div', { class: 'bar-row' }, h('span', { class: 'lbl' }, label), h('div', { class: 'bar' }, h('i', { class: 'fill', style: { width: pct + '%', background: color } })), h('span', { class: 'val num' }, n ? `${n} · ${Math.round(pct)}%` : ''));
+          })),
+          h('div', { class: 'stack sm', style: { marginTop: '10px' } }, ...Array.from(rs.byTheme.entries()).sort((a, b) => b[1].sum / b[1].n - a[1].sum / a[1].n).map(([th, v]) =>
+            h('div', { class: 'row between small' }, h('span', { class: 'row' }, themeDot(th === '__none' ? null : th), themeName(th === '__none' ? null : th)), h('span', { class: 'muted' }, `${Math.round((v.sum / v.n) * 100)}% focus · ${v.n} blocks`)))));
+      })(),
       h('section', { class: 'card notes-section' }, h('div', { class: 'card-head' }, h('h2', null, 'Notes in the period')),
         notes.length ? h('div', { class: 'stack' }, ...notes.map((s) => { const tm = sessionTimes(s); return h('div', { class: 'note-item', style: { '--c': themeColor(s.theme) } }, h('div', { class: 'small muted' }, `${fmtDayShort(dayKeyOf(tm.start))} · ${fmtRange(tm.start, tm.end)} · ${themeName(s.theme)} · ${fmtHM(tm.net / MIN)}`), h('div', { class: 'md', html: renderMd(s.note_md) })); }))
           : h('p', { class: 'muted italic' }, `No notes in the last ${this.days} days.`)));

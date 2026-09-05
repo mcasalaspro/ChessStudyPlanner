@@ -61,6 +61,31 @@ const Timer = {
     r.deleted_at = iso(Date.now()); r.updated_at = r.deleted_at; r.ended_at = r.ended_at || r.deleted_at;
     dirty('session', r.id); commit('timer', { status: 'idle' });
   },
+  /* Guided break: pauses and counts down; ends by itself. */
+  startBreak(minutes) {
+    const r = runningSession(); if (!r || openPause(r)) return;
+    const len = Math.max(1, +minutes || +state.settings.break_len_min || 15);
+    this.pause();
+    const r2 = runningSession(); if (!r2) return;
+    r2.meta = { ...(r2.meta || {}), break_until: iso(Math.round(nowMs()) + len * MIN) }; r2.updated_at = iso(Date.now());
+    if (state.settings.sound) playBell(true);
+    const msg = `Break time — ${len} min. The timer comes back on its own.`;
+    toast(msg, { duration: 7000, action: 'Skip', onAction: () => this.endBreak() }); notify(msg);
+    dirty('session', r2.id); commit('timer', { status: 'paused' });
+  },
+  endBreak() {
+    const r = runningSession(); if (!r) return;
+    if (r.meta) { const m = { ...r.meta }; delete m.break_until; r.meta = m; }
+    this.resume();
+    if (state.settings.sound) playBell();
+    const msg = 'Break over — back to it.'; toast(msg); notify(msg);
+  },
+  breakLeft() { const r = runningSession(); const u = r?.meta?.break_until ? ms(r.meta.break_until) : 0; return u ? Math.max(0, u - nowMs()) : 0; },
+  addBreakMinutes(n) {
+    const r = runningSession(); const u = r?.meta?.break_until ? ms(r.meta.break_until) : 0; if (!u) return;
+    r.meta = { ...r.meta, break_until: iso(u + n * MIN) }; r.updated_at = iso(Date.now());
+    dirty('session', r.id); commit('timer', { status: 'paused' });
+  },
   addQuickNote(text) {
     const r = runningSession(); if (!r || !text.trim()) return false;
     const line = `**[${hm(nowMs())}]** ${text.trim()}`;
@@ -113,6 +138,14 @@ const Timer = {
     if (!r) { if (this._tick) { clearInterval(this._tick); this._tick = null; } if (this._hb) { clearInterval(this._hb); this._hb = null; } this.updateChrome(); emit('tick'); return; }
     const op = openPause(r);
     if (op) {
+      // guided break: resume by itself when the break time is over
+      const until = r.meta?.break_until ? ms(r.meta.break_until) : 0;
+      if (until) {
+        if (nowMs() >= until) { this.endBreak(); return; }
+        const pausedForG = nowMs() - ms(op.start);
+        if (pausedForG > state.settings.pause_autostop_min * MIN) { this.autoClose(r, ms(op.start), 'pause'); }
+        this.updateChrome(); emit('tick'); return;
+      }
       const pausedFor = nowMs() - ms(op.start);
       if (pausedFor > state.settings.pause_autostop_min * MIN) { this.autoClose(r, ms(op.start), 'pause'); return; }
       if (pausedFor > 10 * MIN && this._remindedPause !== op.start) {
@@ -129,12 +162,13 @@ const Timer = {
         if (stopped) { const msg = `Target of ${fmtHM(target)} reached — block stopped.`; toast(msg, { duration: 8000 }); notify(msg); Panel.closeSession(stopped.id); }
         return;
       }
-      // break reminder every N net minutes
+      // break reminder every N net minutes — guided breaks pause and resume by themselves
       const every = +state.settings.break_every_min || 0;
       if (every > 0) {
         const netMinutes = sessionTimes(r).net / MIN; const k = Math.floor(netMinutes / every);
         if (k > 0 && k > this._breakNotified) {
           this._breakNotified = k;
+          if (state.settings.guided_breaks) { this.startBreak(); return; }
           const msg = `${Math.round(netMinutes)} min of study — time for a break?`;
           toast(msg, { duration: 10000, action: 'Take a break', onAction: () => this.pause() }); notify(msg); if (state.settings.sound) playBell(true);
         }

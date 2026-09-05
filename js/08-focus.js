@@ -46,6 +46,7 @@ const Focus = {
     mb.replaceChildren(th ? frag(h('i', { class: 'dot', style: { background: th.color } }), h('span', null, th.name)) : h('span', { style: { opacity: 0.6 } }, r ? 'Study' : 'Ready to start'));
     bar.replaceChildren(...[
       !r ? h('button', { class: 'btn lg', onClick: () => { try { Timer.start(state.settings.last_theme || null); } catch (e) { toast(e.message, { error: true }); } } }, '▶ Start')
+        : Timer.breakLeft() ? h('button', { class: 'btn lg', onClick: () => Timer.endBreak() }, '▶ Skip break')
         : st === 'running' ? h('button', { class: 'btn lg', onClick: () => Timer.pause() }, '❚❚ Pause') : h('button', { class: 'btn lg', onClick: () => Timer.resume() }, '▶ Resume'),
       r ? h('button', { class: 'btn lg', onClick: () => this.toggleNote() }, '📝 Note') : null,
       h('button', { class: 'btn lg', onClick: () => this.pickMission() }, '◉ Theme'),
@@ -57,8 +58,12 @@ const Focus = {
     if (!this.el) return; const r = runningSession(); const main = $('#fz-main', this.el), sub = $('#fz-sub', this.el), fz = $('#fz-frozen', this.el);
     if (!r) { main.textContent = '00:00:00'; sub.textContent = ''; fz.textContent = ''; return; }
     const tm = sessionTimes(r); const p = openPause(r);
-    if (p) { main.textContent = fmtClock(nowMs() - ms(p.start)); fz.textContent = `net ${fmtClock(tm.net)}`; } else main.textContent = fmtClock(tm.net);
-    sub.textContent = `gross ${fmtClock(tm.gross)} · breaks ${fmtClock(tm.pauseMs)}`;
+    const left = Timer.breakLeft();
+    if (left) { main.textContent = fmtClock(left); fz.textContent = `☕ break · net ${fmtClock(tm.net)}`; }
+    else if (p) { main.textContent = fmtClock(nowMs() - ms(p.start)); fz.textContent = `net ${fmtClock(tm.net)}`; }
+    else { main.textContent = fmtClock(tm.net); }
+    sub.textContent = left ? 'Rest your eyes — the timer comes back on its own.' : `gross ${fmtClock(tm.gross)} · breaks ${fmtClock(tm.pauseMs)}`;
+    this.el.classList.toggle('onbreak', !!left);
   },
   /* Horizontal plan: white = study stretches, blue = breaks, with a marker for the current moment. */
   renderPlan() {

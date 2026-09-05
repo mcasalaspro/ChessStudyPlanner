@@ -13,7 +13,7 @@ const DEFAULT_THEMES = [
 const DEFAULT_SETTINGS = {
   name: '', themes: DEFAULT_THEMES.map((x) => ({ ...x })), last_theme: 'calculo',
   break_every_min: 25, break_len_min: 15, pause_autostop_min: 60, streak_min_min: 25, default_len_min: 60, snap_min: 15, target_min: null,
-  focus_anim: 'aurora', sound: true, bg_strength: 'medium', night_freeze: false, night_from: '23:00', night_to: '07:00', updated_at: null,
+  focus_anim: 'aurora', sound: true, bg_strength: 'strong', night_freeze: false, night_from: '23:00', night_to: '07:00', guided_breaks: true, updated_at: null,
 };
 let state = { v: 2, settings: JSON.parse(JSON.stringify(DEFAULT_SETTINGS)), sessions: [], missions: [] };
 let storageKey = 'csp:v2:local';
@@ -186,6 +186,50 @@ function missionStats(m) {
   const remaining = Math.max(0, goalMin - done);
   const perDay = daysLeft != null && daysLeft > 0 ? remaining / daysLeft : null;
   return { done, goalMin, progress: goalMin ? clamp(done / goalMin, 0, 1) : 0, daysLeft, remaining, perDay, complete: done >= goalMin && goalMin > 0, overdue: daysLeft != null && daysLeft < 0 && done < goalMin };
+}
+
+/* ===== Achievements ===== */
+const RATINGS = [['focused', 'Focused', '#8bc34a'], ['normal', 'Normal', '#e0a03a'], ['scattered', 'Scattered', '#e06060']];
+function achievements() {
+  const all = sumRange(null, null); const sk = streakInfo();
+  const sessions = activeSessions();
+  const early = sessions.filter((s) => new Date(ms(s.started_at)).getHours() < 8).length;
+  const byDay = netByDay(null, null);
+  const minMs = (state.settings.streak_min_min || 25) * MIN;
+  // a "full week": 7 days in a row above the daily minimum
+  let bestWeek = 0, run = 0, prev = null;
+  Array.from(byDay.keys()).sort().forEach((k) => { if (byDay.get(k).net < minMs) { run = 0; prev = k; return; } run = prev && addDays(prev, 1) === k ? run + 1 : 1; bestWeek = Math.max(bestWeek, run); prev = k; });
+  const missionsDone = state.missions.filter((m) => !m.deleted_at && (m.status === 'done' || missionStats(m).complete)).length;
+  const focused = sessions.filter((s) => s.meta?.rating === 'focused').length;
+  const def = [
+    { id: 'first', icon: '🚀', name: 'First block', desc: 'Log your first study block', have: sessions.length, goal: 1 },
+    { id: 'week', icon: '📅', name: 'Full week', desc: '7 days in a row above the daily minimum', have: bestWeek, goal: 7 },
+    { id: 'streak10', icon: '🔥', name: 'Ten in a row', desc: '10-day streak', have: Math.max(sk.best, sk.current), goal: 10 },
+    { id: 'streak30', icon: '⚡', name: 'A month of it', desc: '30-day streak', have: Math.max(sk.best, sk.current), goal: 30 },
+    { id: 'h10', icon: '⏱', name: '10 hours', desc: '10 hours of net study', have: all.netMin, goal: 600 },
+    { id: 'h100', icon: '💯', name: '100 hours', desc: '100 hours of net study', have: all.netMin, goal: 6000 },
+    { id: 'h500', icon: '👑', name: '500 hours', desc: '500 hours of net study', have: all.netMin, goal: 30000 },
+    { id: 'early', icon: '🌅', name: 'Early bird', desc: '5 sessions started before 8am', have: early, goal: 5 },
+    { id: 'blocks50', icon: '🧱', name: 'Fifty blocks', desc: 'Log 50 blocks', have: sessions.length, goal: 50 },
+    { id: 'mission', icon: '🏅', name: 'Mission accomplished', desc: 'Finish a mission', have: missionsDone, goal: 1 },
+    { id: 'themes', icon: '🎯', name: 'All-rounder', desc: 'Study 5 different themes', have: new Set(sessions.map((s) => s.theme).filter(Boolean)).size, goal: 5 },
+    { id: 'deep', icon: '🧠', name: 'Deep work', desc: '20 blocks rated as focused', have: focused, goal: 20 },
+  ];
+  return def.map((a) => ({ ...a, done: a.have >= a.goal, pct: clamp(a.have / a.goal, 0, 1) }));
+}
+/* Average focus rating, for the report */
+function ratingStats(fromKey, toKey) {
+  const out = { counts: { focused: 0, normal: 0, scattered: 0 }, byTheme: new Map(), byHour: new Map(), total: 0 };
+  const score = { focused: 1, normal: 0.5, scattered: 0 };
+  for (const s of activeSessions()) {
+    const r = s.meta?.rating; if (!r || !(r in out.counts)) continue;
+    const day = dayKeyOf(ms(s.started_at));
+    if ((fromKey && day < fromKey) || (toKey && day > toKey)) continue;
+    out.counts[r]++; out.total++;
+    const th = s.theme || '__none'; const t = out.byTheme.get(th) || { n: 0, sum: 0 }; t.n++; t.sum += score[r]; out.byTheme.set(th, t);
+    const hr = new Date(ms(s.started_at)).getHours(); const hh = out.byHour.get(hr) || { n: 0, sum: 0 }; hh.n++; hh.sum += score[r]; out.byHour.set(hr, hh);
+  }
+  return out;
 }
 
 /* ===== Night hours (sleep window) ===== */

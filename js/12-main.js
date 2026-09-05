@@ -40,12 +40,10 @@ const App = {
     this.dailyQuote();
     Sync.pull();
   },
-  /* One quote per day, shown once when the app is opened. */
-  dailyQuote() {
-    const key = 'csp:v2:quote:' + (Auth.user?.id || 'x');
-    try { if (localStorage.getItem(key) === todayKey()) return; localStorage.setItem(key, todayKey()); } catch { /* */ }
-    const q = quoteOfDay();
-    showBanner('quote', { text: h('span', null, h('i', null, `“${q.t}”`), h('span', { class: 'muted' }, ` — ${q.s}`)) });
+  /* Quote of the day: same one all day, shown every time the app is opened. Click it for another. */
+  dailyQuote(q) {
+    const quote = q || quoteOfDay();
+    showBanner('quote', { text: h('button', { class: 'quote-btn', title: 'Show another quote', onClick: () => this.dailyQuote(randomQuote()) }, h('i', null, `“${quote.t}”`), h('span', { class: 'muted' }, ` — ${quote.s}`)) });
   },
   route() {
     const hash = location.hash.replace(/^#\/?/, '');

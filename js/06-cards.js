@@ -8,12 +8,14 @@ const TimerCard = {
     this.render(); on('change', () => this.render()); on('tick', () => this.updateDigits());
   },
   render() {
-    const r = runningSession(); const st = Timer.status(); const s = state.settings;
+    const r = runningSession(); const st = Timer.status(); const s = state.settings; const onBreak = !!Timer.breakLeft();
     const theme = r ? r.theme : s.last_theme;
     const chips = themeChips(theme, (v) => { if (r) Timer.setTheme(v); else updateSettings({ last_theme: v }); }, { allowNone: false });
-    const startBtn = h('button', { class: 'btn primary', id: 'btn-start', disabled: st === 'running', onClick: () => { try { if (st === 'paused') Timer.resume(); else Timer.start(theme); } catch (e) { toast(e.message, { error: true }); } } }, st === 'paused' ? '▶ Resume' : '▶ Start');
-    const pauseBtn = h('button', { class: 'btn', disabled: st !== 'running', onClick: () => Timer.pause() }, '❚❚ Pause');
-    const plusBtn = h('button', { class: 'btn', disabled: !r, title: 'Started before you hit Start? Moves the beginning back 10 minutes.', onClick: () => { if (Timer.addMinutes(10)) toast('+10 min added to the start'); else toast('Cannot move the start back: another block is right before it.', { error: true }); } }, '+10 min');
+    const startBtn = h('button', { class: 'btn primary', id: 'btn-start', disabled: st === 'running' || onBreak, onClick: () => { try { if (st === 'paused') Timer.resume(); else Timer.start(theme); } catch (e) { toast(e.message, { error: true }); } } }, onBreak ? '☕ On break' : st === 'paused' ? '▶ Resume' : '▶ Start');
+    const pauseBtn = onBreak
+      ? h('button', { class: 'btn primary', onClick: () => Timer.endBreak() }, '▶ Skip break')
+      : h('button', { class: 'btn', disabled: st !== 'running', onClick: () => Timer.pause() }, '❚❚ Pause');
+    const plusBtn = onBreak ? h('button', { class: 'btn', onClick: () => Timer.addBreakMinutes(5) }, '+5 min break') : h('button', { class: 'btn', disabled: !r, title: 'Started before you hit Start? Moves the beginning back 10 minutes.', onClick: () => { if (Timer.addMinutes(10)) toast('+10 min added to the start'); else toast('Cannot move the start back: another block is right before it.', { error: true }); } }, '+10 min');
     const stopBtn = h('button', { class: 'btn', disabled: !r, onClick: () => { const x = Timer.stop(); if (x) Panel.closeSession(x.id); } }, '■ Stop');
     const focusBtn = h('button', { class: 'btn', onClick: () => Focus.open() }, '🎯 Focus');
     const breakIn = h('input', { type: 'number', min: 0, max: 240, value: s.break_every_min, 'aria-label': 'Break reminder every (min)', onChange: (e) => updateSettings({ break_every_min: clamp(+e.target.value || 0, 0, 240) }) });
@@ -25,7 +27,7 @@ const TimerCard = {
     setKids(this.el,
       h('div', { class: 'card-head' }, h('h2', null, 'Study timer'), r ? h('button', { class: 'btn sm ghost', onClick: () => Panel.editSession(r.id) }, '✎ Block details') : null),
       chips,
-      h('div', { class: 'clock ' + st }, h('div', { class: 'clock-frozen num', id: 'clk-frozen' }), h('div', { class: 'clock-main num', id: 'clk-main', role: 'timer' }, '00:00'), h('div', { class: 'clock-sub', id: 'clk-sub' }, 'Pick a theme and start.')),
+      h('div', { class: 'clock ' + st + (onBreak ? ' onbreak' : '') }, h('div', { class: 'clock-frozen num', id: 'clk-frozen' }), h('div', { class: 'clock-main num', id: 'clk-main', role: 'timer' }, '00:00'), h('div', { class: 'clock-sub', id: 'clk-sub' }, 'Pick a theme and start.')),
       h('div', { class: 'actions' }, focusBtn, startBtn, pauseBtn, plusBtn, stopBtn),
       presets,
       h('div', { class: 'row center small muted', style: { gap: '6px' } }, 'Study', h('span', { style: { width: '62px' } }, breakIn), 'min · break',
@@ -49,7 +51,9 @@ const TimerCard = {
     const sub = $('#clk-sub', this.el), fz = $('#clk-frozen', this.el);
     if (!r) { main.textContent = '00:00'; fz.textContent = ''; sub.textContent = 'Pick a theme and start.'; return; }
     const tm = sessionTimes(r); const p = openPause(r); const target = state.settings.target_min;
-    if (p) { main.textContent = fmtClock(nowMs() - ms(p.start)); fz.textContent = `net ${fmtClock(tm.net)}`; sub.textContent = `Paused · ${themeName(r.theme)} · gross ${fmtClock(tm.gross)} · breaks ${fmtClock(tm.pauseMs)}`; }
+    const left = Timer.breakLeft();
+    if (left) { main.textContent = fmtClock(left); fz.textContent = `☕ break · net ${fmtClock(tm.net)}`; sub.textContent = 'The timer comes back on its own when the break ends.'; }
+    else if (p) { main.textContent = fmtClock(nowMs() - ms(p.start)); fz.textContent = `net ${fmtClock(tm.net)}`; sub.textContent = `Paused · ${themeName(r.theme)} · gross ${fmtClock(tm.gross)} · breaks ${fmtClock(tm.pauseMs)}`; }
     else {
       main.textContent = fmtClock(tm.net); fz.textContent = target ? `target ${fmtHM(target)}` : '';
       sub.textContent = `Studying ${themeName(r.theme)} since ${hm(tm.start)} · gross ${fmtClock(tm.gross)}${tm.pauseMs >= 1000 ? ` · breaks ${fmtClock(tm.pauseMs)}` : ''}`;

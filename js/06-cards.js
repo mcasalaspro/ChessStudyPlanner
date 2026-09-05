@@ -86,10 +86,20 @@ const MissionsCard = {
   mount(root) { this.el = h('section', { class: 'card', id: 'card-missions' }); root.append(this.el); this.render(); on('change', () => this.render()); },
   render() {
     const list = activeMissions();
-    const nameIn = h('input', { type: 'text', class: 'grow', placeholder: 'Name (e.g. Calculation)', maxlength: 80 });
-    const themeSel = themeSelect(state.settings.last_theme); const goalSel = h('select', null, ...GOAL_OPTIONS.map((g) => h('option', { value: g }, `${g}h`)));
-    const startIn = h('input', { type: 'date', value: todayKey(), title: 'Start: hours from this date on count towards the goal' });
-    const deadIn = h('input', { type: 'date', value: addDays(todayKey(), 90), title: 'Deadline' });
+    setKids(this.el,
+      h('div', { class: 'card-head' },
+        h('div', null, h('h2', null, 'Missions'), h('p', { class: 'sub' }, 'Hour goal per theme inside a date window.')),
+        h('button', { class: 'btn sm primary', onClick: () => this.openCreator() }, '+ New mission')),
+      list.length ? h('div', { class: 'mission-grid' }, ...list.map((m) => this.card(m)))
+        : h('p', { class: 'muted italic small' }, 'No missions yet — create one with the button above.'));
+  },
+  /* Creation happens in a dialog so the page stays clean. */
+  openCreator() {
+    const nameIn = h('input', { type: 'text', placeholder: 'e.g. Master calculation', maxlength: 80 });
+    const themeSel = themeSelect(state.settings.last_theme);
+    const goalSel = h('select', null, ...GOAL_OPTIONS.map((g) => h('option', { value: g }, `${g}h`)));
+    const startIn = h('input', { type: 'date', value: todayKey() });
+    const deadIn = h('input', { type: 'date', value: addDays(todayKey(), 90) });
     const hint = h('div', { class: 'hint-box' });
     const updHint = () => {
       const g = +goalSel.value;
@@ -98,32 +108,44 @@ const MissionsCard = {
       if (span <= 0) { hint.textContent = 'The deadline must be after the start date.'; return; }
       hint.textContent = `${span} days in the window${left !== span ? ` · ${left > 0 ? `${left} days left` : 'window already closed'}` : ''} — ${dec1(g / Math.max(1, left > 0 ? left : span))}h per day to finish`;
     };
-    goalSel.addEventListener('change', updHint); deadIn.addEventListener('change', updHint); startIn.addEventListener('change', updHint); updHint();
+    [goalSel, startIn, deadIn].forEach((el) => el.addEventListener('change', updHint)); updHint();
     const create = () => {
       if (!startIn.value || !deadIn.value || daysBetween(startIn.value, deadIn.value) <= 0) { toast('The deadline must be after the start date', { error: true }); return; }
-      createMission({ name: nameIn.value, theme: themeSel.value, goal_hours: +goalSel.value, start_date: startIn.value, deadline: deadIn.value }); nameIn.value = ''; toast('Mission created');
+      createMission({ name: nameIn.value, theme: themeSel.value, goal_hours: +goalSel.value, start_date: startIn.value, deadline: deadIn.value });
+      m.close(); toast('Mission created');
     };
     nameIn.addEventListener('keydown', (e) => { if (e.key === 'Enter') create(); });
-    setKids(this.el,
-      h('div', { class: 'card-head' }, h('div', null, h('h2', null, 'Missions'), h('p', { class: 'sub' }, 'Hour goal per theme with a deadline, in steps of 50 hours.'))),
-      list.length ? h('div', { class: 'mission-list' }, ...list.map((m) => this.row(m))) : h('p', { class: 'muted italic small' }, 'No missions yet — create one below.'),
-      h('div', { class: 'manual-row' }, nameIn, themeSel, goalSel,
-        h('span', { class: 'row nowrap' }, h('span', { class: 'muted small' }, 'from'), startIn, h('span', { class: 'muted small' }, 'to'), deadIn),
-        h('button', { class: 'btn primary', onClick: create }, 'Create')),
-      hint);
+    const m = openModal({
+      title: 'New mission', cls: 'narrow',
+      body: h('div', { class: 'stack' },
+        h('label', { class: 'field' }, h('span', null, 'Name'), nameIn),
+        h('div', { class: 'grid2' },
+          h('label', { class: 'field' }, h('span', null, 'Theme'), themeSel),
+          h('label', { class: 'field' }, h('span', null, 'Goal'), goalSel),
+          h('label', { class: 'field' }, h('span', null, 'Start'), startIn),
+          h('label', { class: 'field' }, h('span', null, 'Deadline'), deadIn)),
+        hint),
+      footer: frag(h('button', { class: 'btn', onClick: () => m.close() }, 'Cancel'), h('button', { class: 'btn primary', onClick: create }, 'Create')),
+    });
+    setTimeout(() => nameIn.focus(), 30);
   },
-  row(m) {
+  card(m) {
     const st = missionStats(m); const pct = Math.round(st.progress * 100);
-    const status = m.status === 'done' || st.complete ? h('span', { class: 'tag ok' }, '✓ done') : st.overdue ? h('span', { class: 'tag bad' }, `${-st.daysLeft} d overdue`) : null;
-    const meta = m.status === 'done' || st.complete ? `${fmtHM(st.done)} of ${m.goal_hours}h`
-      : st.daysLeft != null ? `${fmtHM(st.done)} of ${m.goal_hours}h · ${st.daysLeft} days left${st.perDay != null ? ` — ${dec1(st.perDay / 60)}h per day` : ''}` : `${fmtHM(st.done)} of ${m.goal_hours}h`;
-    const window_ = m.start_date && m.deadline ? ` · ${fmtDate(m.start_date)} → ${fmtDate(m.deadline)}` : m.deadline ? ` · due ${fmtDate(m.deadline)}` : '';
-    return h('button', { class: 'mission-row', style: { '--c': themeColor(m.theme) }, onClick: () => Panel.mission(m.id) },
-      h('div', { class: 'row between' }, h('span', { class: 'row' }, themeDot(m.theme), h('b', null, m.name), h('span', { class: 'muted small' }, themeName(m.theme)), status), h('b', { class: 'num' }, `${pct}%`)),
+    const done = m.status === 'done' || st.complete;
+    const line = done ? 'goal reached'
+      : st.daysLeft != null && st.daysLeft > 0 ? `${st.daysLeft} days left · ${st.perDay != null ? `${dec1(st.perDay / 60)}h per day` : ''}`
+      : st.overdue ? `deadline passed ${-st.daysLeft} days ago` : `${fmtHM(st.done)} of ${m.goal_hours}h`;
+    return h('button', { class: 'mission-card' + (done ? ' done' : '') + (st.overdue && !done ? ' late' : ''), style: { '--c': themeColor(m.theme) }, title: 'Edit mission', onClick: () => Panel.mission(m.id) },
+      h('div', { class: 'mc-head' }, h('span', { class: 'mc-medal' + (done ? '' : ' dim') }, medalIcon()), h('div', { class: 'grow' }, h('b', { class: 'mc-name' }, m.name), h('div', { class: 'muted small' }, themeName(m.theme))), h('b', { class: 'num mc-pct' }, `${pct}%`)),
       h('div', { class: 'progress' }, h('i', { style: { width: pct + '%' } })),
-      h('div', { class: 'muted small' }, meta, window_));
+      h('div', { class: 'mc-foot muted small' }, h('span', null, `${fmtHM(st.done)} / ${m.goal_hours}h`), h('span', null, line)),
+      h('div', { class: 'mc-dates faint small' }, m.start_date && m.deadline ? `${fmtDate(m.start_date)} → ${fmtDate(m.deadline)}` : m.deadline ? `due ${fmtDate(m.deadline)}` : ''));
   },
 };
+/* Achievement medal */
+function medalIcon() {
+  return h('span', { html: '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M7 2h3l2.2 6.2L9 10 7 2Z" fill="currentColor" opacity=".75"/><path d="M17 2h-3l-2.2 6.2L15 10l2-8Z" fill="currentColor" opacity=".55"/><circle cx="12" cy="15.5" r="6.2" fill="currentColor"/><circle cx="12" cy="15.5" r="4.3" fill="none" stroke="rgba(0,0,0,.35)" stroke-width="1.1"/><path d="m12 12.4 1 2.1 2.3.3-1.7 1.6.4 2.3-2-1.1-2 1.1.4-2.3-1.7-1.6 2.3-.3 1-2.1Z" fill="rgba(0,0,0,.4)"/></svg>' });
+}
 
 /* ---------- Calendar (rows = days, columns = hours) ---------- */
 const Calendar = {
@@ -159,7 +181,7 @@ const Calendar = {
     const rows = days.map((k) => {
       const tot = totals.get(k)?.net || 0;
       const label = interactive ? h('button', { class: 'tl-label', title: 'See the blocks of this day', onClick: () => Panel.day(k) }, fmtDayShort(k)) : h('div', { class: 'tl-label' }, fmtDayShort(k));
-      const track = h('div', { class: 'tl-track', dataset: { date: k } }, ...Array.from({ length: 24 }, () => h('i', { class: 'cell' })));
+      const track = h('div', { class: 'tl-track', dataset: { date: k } }, ...Array.from({ length: 24 }, (_, hr) => h('i', { class: 'cell' + (isNightMinute(hr * 60 + 30) ? ' night' : ''), title: isNightMinute(hr * 60 + 30) ? 'Sleep hours (frozen)' : null })));
       if (k === tk) track.append(h('div', { class: 'now-line' }, h('span', { class: 'now-lbl num' })));
       return h('div', { class: 'tl-row' + (k === tk ? ' today' : '') + (isMonday(k) ? ' week-start' : '') + (k > tk ? ' future' : ''), dataset: { date: k } },
         label, track, h('div', { class: 'tl-total num' }, tot ? fmtHM(tot / MIN) : ''));
@@ -204,6 +226,7 @@ const Calendar = {
     this.focusId = s.id; updateSession(s.id, patch); toastUndo('Block adjusted');
   },
   createAt(startMs, lenMin) {
+    if (nightBlocks(startMs, startMs + lenMin * MIN)) { toast('Those are your sleep hours — unfreeze them in Settings if you want to study then', { error: true }); return null; }
     const fit = this.fitMove(startMs, startMs + lenMin * MIN); if (!fit.ok) { toast('Does not fit: another block is in the way', { error: true }); return null; }
     const data = { theme: state.settings.last_theme || themes()[0]?.id, started_at: iso(fit.start), ended_at: iso(fit.end), source: 'manual' };
     const errs = validateSession(data); if (errs.length) { toast(errs[0].message, { error: true }); return null; }
@@ -255,7 +278,7 @@ const Calendar = {
       if (!commitIt || !d.moved || !res) return;
       const reject = () => { blocks.forEach((b) => { b.classList.add('reject'); setTimeout(() => b.classList.remove('reject'), 300); }); toast('Does not fit: it runs into another block', { error: true }); };
       if (!res.ok) { reject(); return; }
-      if (d.kind === 'create') { const data = { theme: state.settings.last_theme || themes()[0]?.id, started_at: iso(res.start), ended_at: iso(res.end), source: 'manual' }; const errs = validateSession(data); if (errs.length) { toast(errs[0].message, { error: true }); return; } const s = createSession(data); this.selectedId = s.id; this.focusId = s.id; toastUndo('Block created'); setTimeout(() => Panel.editSession(s.id), 30); return; }
+      if (d.kind === 'create') { if (nightBlocks(res.start, res.end)) { toast('Those are your sleep hours — unfreeze them in Settings if you want to study then', { error: true }); return; } const data = { theme: state.settings.last_theme || themes()[0]?.id, started_at: iso(res.start), ended_at: iso(res.end), source: 'manual' }; const errs = validateSession(data); if (errs.length) { toast(errs[0].message, { error: true }); return; } const s = createSession(data); this.selectedId = s.id; this.focusId = s.id; toastUndo('Block created'); setTimeout(() => Panel.editSession(s.id), 30); return; }
       if (d.kind === 'dup') { const src = d.session; const shift = res.start - d.orig.start; const pauses = (src.pauses || []).map((p) => ({ start: iso(ms(p.start) + shift), end: p.end ? iso(ms(p.end) + shift) : null })); const data = { theme: src.theme, started_at: iso(res.start), ended_at: iso(res.end), pauses, source: 'manual', note_md: src.note_md }; const errs = validateSession(data); if (errs.length) { toast(errs[0].message, { error: true }); return; } const s = createSession(data); this.focusId = s.id; toastUndo('Block duplicated'); return; }
       const s = d.session; const shift = res.start - d.orig.start; const patch = { started_at: iso(res.start) };
       if (s.ended_at) patch.ended_at = iso(res.end);

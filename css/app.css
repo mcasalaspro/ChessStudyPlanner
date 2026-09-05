@@ -1,6 +1,6 @@
 /* ===== Chess Study Planner — styles ===== */
 :root {
-  --bg: #15110d; --card: rgba(22, 21, 20, 0.82); --card-2: #232221; --line: #3a3835; --line-2: #4a4744;
+  --bg: #15110d; --card: rgba(20, 19, 18, 0.84); --card-2: #232221; --line: #3a3835; --line-2: #4a4744;
   --text: #ececec; --muted: #a8a49f; --faint: #6f6b66;
   --green: #8bc34a; --green-ink: #10200a; --amber: #e0a03a; --red: #e06060; --blue: #6e8ef0; --gold: #f2a41c;
   --radius: 14px; --r-sm: 9px;
@@ -10,9 +10,12 @@
 html { color-scheme: dark; }
 body {
   margin: 0; font-family: var(--font); color: var(--text); font-size: 14px; line-height: 1.45; min-height: 100vh;
-  background: #0f0f12 center top / cover no-repeat fixed;
+  background: #0f0f12;
 }
-body::before { content: ""; position: fixed; inset: 0; background: linear-gradient(180deg, rgba(8, 8, 10, 0.1), rgba(8, 8, 10, 0.34)); pointer-events: none; z-index: 0; }
+#bgimg { position: fixed; inset: 0; z-index: -2; background: #0f0f12 center center / cover no-repeat; filter: brightness(var(--bg-bright, 1.75)) saturate(1.15); pointer-events: none; }
+body::before { content: ""; position: fixed; inset: 0; background: linear-gradient(180deg, rgba(8, 8, 10, var(--veil-top, 0.06)), rgba(8, 8, 10, var(--veil-bot, 0.26))); pointer-events: none; z-index: -1; }
+body.bg-soft { --bg-bright: 1.15; --veil-top: 0.22; --veil-bot: 0.5; }
+body.bg-strong { --bg-bright: 2.6; --veil-top: 0; --veil-bot: 0.1; --card: rgba(18, 17, 16, 0.9); }
 #app { position: relative; z-index: 1; }
 a { color: var(--green); }
 h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: -0.01em; }
@@ -126,7 +129,20 @@ select { padding-right: 26px; }
 .quick-note textarea { flex: 1; }
 
 /* ---- missions ---- */
-.mission-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; max-height: 168px; overflow-y: auto; }
+.mission-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+.mission-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; max-height: 250px; overflow-y: auto; }
+.mission-card { display: flex; flex-direction: column; gap: 6px; text-align: left; width: 100%; appearance: none; font: inherit; font-size: 13px; color: var(--text);
+  background: #1c1b1a; border: 1px solid var(--line); border-top: 3px solid var(--c); border-radius: 10px; padding: 9px 11px; cursor: pointer; }
+.mission-card:hover { background: #232221; }
+.mission-card.done { border-color: rgba(242, 164, 28, 0.55); background: linear-gradient(180deg, rgba(242, 164, 28, 0.09), #1c1b1a); }
+.mission-card.late { border-color: rgba(224, 96, 96, 0.5); }
+.mc-head { display: flex; align-items: flex-start; gap: 8px; }
+.mc-name { display: block; line-height: 1.2; }
+.mc-pct { font-size: 15px; }
+.mc-medal { color: var(--gold); display: inline-flex; flex: 0 0 auto; margin-top: 1px; filter: drop-shadow(0 0 6px rgba(242, 164, 28, 0.45)); }
+.mc-medal.dim { color: #55524e; filter: none; }
+.mc-foot { display: flex; justify-content: space-between; gap: 8px; }
+.mc-dates { font-size: 11px; }
 .report .mission-list { max-height: none; }
 .mission-row { display: flex; flex-direction: column; gap: 4px; text-align: left; width: 100%; appearance: none; font: inherit; font-size: 13px; color: var(--text); background: #1c1b1a; border: 1px solid var(--line); border-left: 4px solid var(--c); border-radius: var(--r-sm); padding: 7px 10px; cursor: pointer; }
 .mission-row:hover { background: #222120; } .mission-row.static { cursor: default; }
@@ -153,6 +169,7 @@ select { padding-right: 26px; }
 .tl-head .tl-total { color: var(--muted); font-weight: 700; }
 .tl-track { position: relative; display: grid; grid-template-columns: repeat(24, 1fr); gap: 2px; height: 100%; touch-action: pan-y; cursor: cell; }
 .tl-track .cell { background: #2b2a29; border-radius: 3px; }
+.tl-track .cell.night { background: repeating-linear-gradient(135deg, #232221 0 4px, #1b1a19 4px 8px); opacity: 0.85; }
 .tl.static .tl-track { cursor: default; }
 .blk { position: absolute; top: 1px; bottom: 1px; border-radius: 4px; background: var(--c); color: #fff; font-size: 10px; font-weight: 700; padding: 0 4px; display: flex; align-items: center; overflow: hidden; white-space: nowrap; cursor: grab; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35); touch-action: none; }
 .blk .t { overflow: hidden; text-overflow: clip; flex: 1; min-width: 0; }
@@ -200,9 +217,8 @@ body.dragging { cursor: grabbing; } body.dragging * { cursor: grabbing !importan
 /* With the side panel open the cards keep their size: the content slides left instead of being squeezed. */
 @media (min-width: 761px) {
   body.drawer-open { overflow-x: hidden; }
-  body.drawer-open main { margin-left: -390px; transition: margin-left 0.18s ease; }
 }
-main { transition: margin-left 0.18s ease; }
+main { transition: transform 0.18s ease, padding-right 0.18s ease; }
 .summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; background: #232221; border-radius: var(--r-sm); padding: 10px 12px; }
 .summary b { display: block; font-size: 18px; font-variant-numeric: tabular-nums; } .summary span { display: block; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
 .block-row { display: flex; align-items: center; gap: 10px; width: 100%; appearance: none; font: inherit; color: var(--text); background: #232221; border: 1px solid var(--line); border-radius: var(--r-sm); padding: 8px 10px; cursor: pointer; text-align: left; }

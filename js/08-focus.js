@@ -1,6 +1,6 @@
 /* ===== Focus mode ===== */
 const Focus = {
-  el: null, raf: null, idleTm: null, lock: null, offs: [], t0: 0, stars: null, waveOffset: 0,
+  el: null, raf: null, idleTm: null, lock: null, offs: [], t0: 0, stars: null, flares: null, waveOffset: 0,
   isOpen() { return !!this.el; },
   open() {
     if (this.el) return;
@@ -122,7 +122,7 @@ const Focus = {
   palette() {
     const r = runningSession(); const th = themeById(r ? r.theme : state.settings.last_theme);
     const base = hexToHsl(th ? th.color : '#5c86f0'); const paused = Timer.status() === 'paused';
-    const sat = paused ? 10 : 30, light = paused ? 26 : 36;
+    const sat = paused ? 14 : 34, light = paused ? 28 : 40;
     return { h: base.h, s: sat, l: light, paused };
   },
   draw(ts) {
@@ -132,17 +132,28 @@ const Focus = {
     ctx.clearRect(0, 0, W, H);
     ctx.fillStyle = `hsl(${pal.h} ${Math.round(pal.s * 0.4)}% 7%)`; ctx.fillRect(0, 0, W, H);
     if (kind === 'aurora' || kind === 'nenhuma') {
-      const blobs = [[0.3, 0.35, 74, 121, 0], [0.7, 0.55, 95, 160, 25], [0.5, 0.8, 85, 128, -20]];
+      const blobs = [[0.3, 0.35, 19, 31, 0], [0.7, 0.55, 24, 39, 25], [0.5, 0.8, 21, 34, -20]];
       ctx.globalCompositeOperation = 'lighter';
       blobs.forEach(([bx, by, p1, p2, hueOff], i) => {
-        const x = W * (bx + 0.16 * Math.sin((tt / p1) * 2 * Math.PI + i) + 0.07 * Math.cos((tt / p2) * 2 * Math.PI * 1.7 + i * 2));
-        const y = H * (by + 0.14 * Math.cos((tt / p2) * 2 * Math.PI + i * 1.3) + 0.06 * Math.sin((tt / p1) * 2 * Math.PI * 1.3));
-        const rad = Math.max(W, H) * (0.42 + 0.05 * Math.sin(tt / 23 + i));
+        const x = W * (bx + 0.24 * Math.sin((tt / p1) * 2 * Math.PI + i) + 0.1 * Math.cos((tt / p2) * 2 * Math.PI * 1.7 + i * 2));
+        const y = H * (by + 0.2 * Math.cos((tt / p2) * 2 * Math.PI + i * 1.3) + 0.09 * Math.sin((tt / p1) * 2 * Math.PI * 1.3));
+        const rad = Math.max(W, H) * (0.4 + 0.08 * Math.sin(tt / 11 + i));
         const g = ctx.createRadialGradient(x, y, 0, x, y, rad);
         const hue = (pal.h + hueOff + 360) % 360;
-        g.addColorStop(0, `hsla(${hue} ${pal.s}% ${pal.l}% / 0.38)`); g.addColorStop(0.45, `hsla(${hue} ${pal.s}% ${pal.l}% / 0.12)`); g.addColorStop(1, 'hsla(0 0% 0% / 0)');
+        g.addColorStop(0, `hsla(${hue} ${pal.s}% ${pal.l}% / 0.5)`); g.addColorStop(0.45, `hsla(${hue} ${pal.s}% ${pal.l}% / 0.16)`); g.addColorStop(1, 'hsla(0 0% 0% / 0)');
         ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
       });
+      // small light flares drifting across the screen
+      if (!this.flares) { const rnd = mulberry(11); this.flares = Array.from({ length: 7 }, () => ({ x: rnd(), y: rnd(), sp: 0.006 + rnd() * 0.014, dir: rnd() * Math.PI * 2, r: 0.03 + rnd() * 0.05, ph: rnd() * Math.PI * 2 })); }
+      for (const f of this.flares) {
+        const x = W * (((f.x + Math.cos(f.dir) * f.sp * tt) % 1.2 + 1.2) % 1.2 - 0.1);
+        const y = H * (((f.y + Math.sin(f.dir) * f.sp * tt) % 1.2 + 1.2) % 1.2 - 0.1);
+        const rad = Math.max(W, H) * f.r * (1 + 0.25 * Math.sin(tt / 6 + f.ph));
+        const a = (0.1 + 0.09 * (0.5 + 0.5 * Math.sin(tt / 8 + f.ph))) * (pal.paused ? 0.4 : 1);
+        const g2 = ctx.createRadialGradient(x, y, 0, x, y, rad);
+        g2.addColorStop(0, `hsla(${(pal.h + 12) % 360} ${pal.s}% ${Math.min(72, pal.l + 26)}% / ${a})`); g2.addColorStop(1, 'hsla(0 0% 0% / 0)');
+        ctx.fillStyle = g2; ctx.fillRect(0, 0, W, H);
+      }
       ctx.globalCompositeOperation = 'source-over';
     } else if (kind === 'ondas') {
       const dpr = this.dpr || 1; const shift = tt * 1 * dpr; // 1 px/s

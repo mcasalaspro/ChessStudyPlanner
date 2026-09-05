@@ -13,7 +13,7 @@ const DEFAULT_THEMES = [
 const DEFAULT_SETTINGS = {
   name: '', themes: DEFAULT_THEMES.map((x) => ({ ...x })), last_theme: 'calculo',
   break_every_min: 25, break_len_min: 15, pause_autostop_min: 60, streak_min_min: 25, default_len_min: 60, snap_min: 15, target_min: null,
-  focus_anim: 'aurora', sound: true, updated_at: null,
+  focus_anim: 'aurora', sound: true, bg_strength: 'medium', night_freeze: false, night_from: '23:00', night_to: '07:00', updated_at: null,
 };
 let state = { v: 2, settings: JSON.parse(JSON.stringify(DEFAULT_SETTINGS)), sessions: [], missions: [] };
 let storageKey = 'csp:v2:local';
@@ -186,6 +186,21 @@ function missionStats(m) {
   const remaining = Math.max(0, goalMin - done);
   const perDay = daysLeft != null && daysLeft > 0 ? remaining / daysLeft : null;
   return { done, goalMin, progress: goalMin ? clamp(done / goalMin, 0, 1) : 0, daysLeft, remaining, perDay, complete: done >= goalMin && goalMin > 0, overdue: daysLeft != null && daysLeft < 0 && done < goalMin };
+}
+
+/* ===== Night hours (sleep window) ===== */
+const hhmmToMin = (v) => { const [a, b] = String(v || '').split(':').map(Number); return (a || 0) * 60 + (b || 0); };
+/* True when the given minute of the day falls inside the frozen sleep window. */
+function isNightMinute(min) {
+  if (!state.settings.night_freeze) return false;
+  const a = hhmmToMin(state.settings.night_from), b = hhmmToMin(state.settings.night_to);
+  if (a === b) return false;
+  return a < b ? min >= a && min < b : min >= a || min < b;
+}
+function nightBlocks(startMs, endMs) { // any minute of the range inside the sleep window
+  if (!state.settings.night_freeze) return false;
+  for (let t = startMs; t < endMs; t += 15 * MIN) if (isNightMinute(minuteOfDay(t))) return true;
+  return isNightMinute(minuteOfDay(endMs - 1));
 }
 
 /* ===== Aggregations ===== */

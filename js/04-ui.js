@@ -90,8 +90,24 @@ const Drawer = {
     this.ensure(); this.current = key || title;
     $('#drawer-title', this.el).textContent = title; setKids($('#drawer-body', this.el), body);
     this.el.hidden = false; document.body.classList.add('drawer-open');
+    this.fit();
+    if (!this._onResize) { this._onResize = () => this.fit(); window.addEventListener('resize', this._onResize); }
     emit('drawer', { open: true, key: this.current });
   },
-  close() { if (!this.el || this.el.hidden) return; this.el.hidden = true; this.current = null; document.body.classList.remove('drawer-open'); emit('drawer', { open: false }); },
+  /* Slide the page left only as far as the free margin allows; nothing is pushed off-screen.
+     If the panel still covers the content after that, the leftover is taken from the right side. */
+  fit() {
+    const main = $('main'); if (!main) return;
+    main.style.transform = ''; main.style.paddingRight = '';
+    if (!this.el || this.el.hidden || window.innerWidth <= 760) return;
+    const rect = main.getBoundingClientRect();
+    const overlap = rect.right - (window.innerWidth - this.el.offsetWidth - 12);
+    if (overlap <= 0) return;
+    const shift = Math.min(overlap, Math.max(0, rect.left));
+    const leftover = overlap - shift;
+    if (shift > 0) main.style.transform = `translateX(${-Math.round(shift)}px)`;
+    if (leftover > 0) main.style.paddingRight = `${Math.round(16 + leftover)}px`;
+  },
+  close() { if (!this.el || this.el.hidden) return; this.el.hidden = true; this.current = null; document.body.classList.remove('drawer-open'); const main = $('main'); if (main) { main.style.transform = ''; main.style.paddingRight = ''; } emit('drawer', { open: false }); },
   isOpen(key) { return !!this.el && !this.el.hidden && (key == null || this.current === key); },
 };

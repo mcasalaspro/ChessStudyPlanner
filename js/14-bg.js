@@ -4,8 +4,15 @@
 const Background = {
   MAX: 30, EXT: ['webp', 'jpg', 'jpeg', 'png'],
   apply() {
-    const order = this.orderForToday();
-    this.tryNext(order, 0);
+    this.strength();
+    this.tryNext(this.orderForToday(), 0);
+  },
+  /* How much the picture shows through: 'soft' | 'medium' | 'strong' */
+  strength() {
+    const v = state.settings.bg_strength || 'medium';
+    document.body.classList.remove('bg-soft', 'bg-strong');
+    if (v === 'soft') document.body.classList.add('bg-soft');
+    if (v === 'strong') document.body.classList.add('bg-strong');
   },
   orderForToday() {
     const key = todayKey(); let hnum = 2166136261;
@@ -28,5 +35,10 @@ const Background = {
     img.onerror = () => this.tryExts(n, e + 1, cb);
     img.src = url;
   },
-  set(url) { document.body.style.backgroundImage = `url("${url}")`; document.body.classList.add('has-bg'); },
+  set(url) {
+    let layer = document.getElementById('bgimg');
+    if (!layer) { layer = h('div', { id: 'bgimg' }); document.body.prepend(layer); }
+    layer.style.backgroundImage = `url("${url}")`;
+    document.body.classList.add('has-bg');
+  },
 };

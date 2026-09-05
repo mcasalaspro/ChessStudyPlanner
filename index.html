@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#15110d">
+<meta name="robots" content="noindex">
+<meta name="description" content="Chess Study Planner — cronômetro de estudo, calendário arrastável, missões e relatórios.">
+<title>Chess Study Planner</title>
+<link rel="icon" href="assets/logo-256.png">
+<link rel="apple-touch-icon" href="assets/logo-256.png">
+<link rel="stylesheet" href="css/app.css">
+<script src="config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+</head>
+<body>
+<div id="app">
+  <header class="topbar">
+    <a class="brand" href="#/"><img src="assets/logo.png" alt=""><span class="name">Chess Study Planner</span></a>
+    <div class="top-actions" id="top-actions"></div>
+  </header>
+  <div class="banner-root" id="banners"></div>
+  <main id="view"></main>
+</div>
+<script src="js/00-util.js"></script>
+<script src="js/01-store.js"></script>
+<script src="js/02-markdown.js"></script>
+<script src="js/03-timer.js"></script>
+<script src="js/04-ui.js"></script>
+<script src="js/05-panel.js"></script>
+<script src="js/06-cards.js"></script>
+<script src="js/07-report.js"></script>
+<script src="js/08-focus.js"></script>
+<script src="js/09-export.js"></script>
+<script src="js/10-sync.js"></script>
+<script src="js/11-auth.js"></script>
+<script src="js/12-main.js"></script>
+</body>
+</html>

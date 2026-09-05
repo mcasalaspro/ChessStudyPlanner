@@ -5,7 +5,7 @@ function download(name, content, type) {
 }
 function csvEscape(v) { const s = String(v ?? ''); return /[;"\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }
 function exportCsv(sessions) {
-  const head = ['data', 'inicio', 'fim', 'bruto_min', 'pausas_min', 'liquido_min', 'tema', 'origem', 'comentario'];
+  const head = ['date', 'start', 'end', 'gross_min', 'break_min', 'net_min', 'theme', 'source', 'note'];
   const rows = [head.join(';')];
   for (const s of sessions.slice().sort((a, b) => a.started_at.localeCompare(b.started_at))) {
     const tm = sessionTimes(s);
@@ -44,7 +44,7 @@ function mulberry(seed) { let a = seed >>> 0; return () => { a = (a + 0x6D2B79F5
 function seedSampleData() {
   const rnd = mulberry(7); const pick = (arr) => arr[Math.floor(rnd() * arr.length)];
   const ths = themes().map((x) => x.id);
-  const notes = ['**[19:12]** Italiana com 4.c3: lembrar do plano d4 depois de castelar.', 'Lucena com peão de torre: a ponte funciona igual.', '- 12 puzzles, 9 certos\n- padrão que falhei: sacrifício em h7', 'Analisei a partida da rodada 3. `28...Dxd4` era o lance.', 'Philidor: torre na terceira fila até o peão avançar.', 'Revisão de aberturas com o caderno, sem tabuleiro.'];
+  const notes = ['**[19:12]** Italian with 4.c3: remember the d4 plan after castling.', 'Lucena with a rook pawn: the bridge works the same.', '- 12 puzzles, 9 correct\n- pattern I missed: sacrifice on h7', 'Reviewed round 3. `28...Qxd4` was the move.', 'Philidor: rook on the third rank until the pawn advances.', 'Opening review from the notebook, no board.'];
   const today = new Date(nowMs());
   for (let d = 35; d >= 1; d--) {
     if (rnd() < 0.25) continue;
@@ -59,6 +59,6 @@ function seedSampleData() {
       state.sessions.push(s); dirty('session', s.id);
     }
   }
-  if (!activeMissions().length) createMission({ name: 'Cálculo', theme: ths[0], goal_hours: 50, deadline: addDays(todayKey(), 91) });
+  if (!activeMissions().length) createMission({ name: 'Calculation', theme: ths[0], goal_hours: 50, deadline: addDays(todayKey(), 91) });
   commit('sessions');
 }

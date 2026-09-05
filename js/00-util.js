@@ -55,12 +55,12 @@ const todayKey = () => ymd(new Date(nowMs()));
 const dayKeyOf = (msv) => ymd(new Date(msv));
 const isMonday = (key) => parseYmd(key).getDay() === 1;
 
-/* ===== Formatting (pt-BR) ===== */
-const WD = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
-const WD_LONG = ['domingo', 'segunda-feira', 'terça-feira', 'quarta-feira', 'quinta-feira', 'sexta-feira', 'sábado'];
-const MON = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
-const MON_LONG = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
-function fmtClock(msv) { // H:MM:SS when ≥ 1 h, else MM:SS
+/* ===== Formatting (en) ===== */
+const WD = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const WD_LONG = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const MON_LONG = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+function fmtClock(msv) { // H:MM:SS when >= 1 h, else MM:SS
   msv = Math.max(0, Math.floor(msv / 1000));
   const hh = Math.floor(msv / 3600), mm = Math.floor((msv % 3600) / 60), ss = msv % 60;
   return hh ? `${hh}:${pad2(mm)}:${pad2(ss)}` : `${pad2(mm)}:${pad2(ss)}`;
@@ -71,14 +71,15 @@ function fmtHM(minutes) { // 2h35 · 50min · 0min
   return `${hh}h${pad2(mm)}`;
 }
 function fmtHMlong(minutes) { const m = Math.round(minutes); const hh = Math.floor(m / 60), mm = m % 60; if (hh === 0) return `${mm} min`; if (mm === 0) return `${hh} h`; return `${hh} h ${pad2(mm)} min`; }
-function fmtHours1(minutes) { return (minutes / 60).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + 'h'; }
+function fmtHours1(minutes) { return (minutes / 60).toLocaleString('en-US', { maximumFractionDigits: 1 }) + 'h'; }
 const hm = (msv) => { const d = new Date(msv); return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`; };
-const fmtRange = (s, e) => `${hm(s)}–${hm(e)}`;
-function fmtDayShort(key) { const d = parseYmd(key); return `${WD[d.getDay()]} ${d.getDate()}/${d.getMonth() + 1}`; }
-function fmtDayLong(key) { const d = parseYmd(key); return `${WD_LONG[d.getDay()]}, ${d.getDate()} de ${MON_LONG[d.getMonth()]}`; }
-function fmtDateBr(d) { d = d instanceof Date ? d : parseYmd(d); return `${d.getDate()}/${d.getMonth() + 1}/${d.getFullYear()}`; }
-function fmtDayRel(key) { const tk = todayKey(); if (key === tk) return 'Hoje'; if (key === addDays(tk, -1)) return 'Ontem'; if (key === addDays(tk, 1)) return 'Amanhã'; return fmtDayShort(key); }
-const fmtNum = (n) => Number(n).toLocaleString('pt-BR');
+const fmtRange = (s, e) => `${hm(s)}\u2013${hm(e)}`;
+function fmtDayShort(key) { const d = parseYmd(key); return `${WD[d.getDay()]} ${MON[d.getMonth()]} ${d.getDate()}`; }
+function fmtDayLong(key) { const d = parseYmd(key); return `${WD_LONG[d.getDay()]}, ${MON_LONG[d.getMonth()]} ${d.getDate()}`; }
+function fmtDate(d) { d = d instanceof Date ? d : parseYmd(d); return `${MON[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`; }
+function fmtDayRel(key) { const tk = todayKey(); if (key === tk) return 'Today'; if (key === addDays(tk, -1)) return 'Yesterday'; if (key === addDays(tk, 1)) return 'Tomorrow'; return fmtDayShort(key); }
+const fmtNum = (n) => Number(n).toLocaleString('en-US');
+const dec1 = (n) => n.toLocaleString('en-US', { maximumFractionDigits: 1 });
 function localDateTimeValue(msv) { const d = new Date(msv); return `${ymd(d)}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`; }
 
 /* ===== Colors ===== */

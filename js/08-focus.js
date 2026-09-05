@@ -8,11 +8,11 @@ const Focus = {
     const canvas = h('canvas'); el.append(canvas);
     const missionBox = h('div', { class: 'fz-mission', id: 'fz-mission' });
     const center = h('div', { class: 'fz-center' }, missionBox, h('div', { class: 'fz-frozen num', id: 'fz-frozen' }), h('div', { class: 'fz-main num', id: 'fz-main' }, '00:00:00'), h('div', { class: 'fz-sub', id: 'fz-sub' }));
-    const noteTa = h('textarea', { placeholder: 'Nota rápida (Ctrl+Enter adiciona ao comentário)', 'aria-label': 'Nota rápida' });
-    const noteBox = h('div', { class: 'fz-note', hidden: true }, noteTa, h('div', { class: 'row' }, h('button', { class: 'btn sm', onClick: () => { noteBox.hidden = true; } }, 'Cancelar'), h('button', { class: 'btn sm primary', onClick: () => this.addNote() }, 'Adicionar')));
+    const noteTa = h('textarea', { placeholder: 'Quick note (Ctrl+Enter adds it to the block)', 'aria-label': 'Quick note' });
+    const noteBox = h('div', { class: 'fz-note', hidden: true }, noteTa, h('div', { class: 'row' }, h('button', { class: 'btn sm', onClick: () => { noteBox.hidden = true; } }, 'Cancel'), h('button', { class: 'btn sm primary', onClick: () => this.addNote() }, 'Adicionar')));
     noteTa.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); this.addNote(); } if (e.key === 'Escape') { noteBox.hidden = true; } });
     const bar = h('div', { class: 'fz-bar', id: 'fz-bar' });
-    el.append(h('div', { class: 'fz-hint' }, 'Espaço pausa · N nota · M tema · E encerra · Esc sai'), center, noteBox, bar);
+    el.append(h('div', { class: 'fz-hint' }, 'Space pause · N note · M theme · E stop · Esc exit'), center, noteBox, bar);
     document.body.append(el); this.el = el; this.canvas = canvas; this.noteBox = noteBox; this.noteTa = noteTa;
     this.renderControls();
     // fullscreen (fallback: overlay already covers the viewport)
@@ -40,25 +40,25 @@ const Focus = {
     const r = runningSession(); const st = Timer.status(); const bar = $('#fz-bar', this.el); const mb = $('#fz-mission', this.el);
     this.el.classList.toggle('paused', st === 'paused');
     const th = themeById(r ? r.theme : state.settings.last_theme);
-    mb.replaceChildren(th ? frag(h('i', { class: 'dot', style: { background: th.color } }), h('span', null, th.name)) : h('span', { style: { opacity: 0.6 } }, r ? 'Estudo' : 'Pronto para começar'));
+    mb.replaceChildren(th ? frag(h('i', { class: 'dot', style: { background: th.color } }), h('span', null, th.name)) : h('span', { style: { opacity: 0.6 } }, r ? 'Study' : 'Ready to start'));
     bar.replaceChildren(...[
-      !r ? h('button', { class: 'btn lg', onClick: () => { try { Timer.start(state.settings.last_theme || null); } catch (e) { toast(e.message, { error: true }); } } }, '▶ Iniciar')
-        : st === 'running' ? h('button', { class: 'btn lg', onClick: () => Timer.pause() }, '❚❚ Pausar') : h('button', { class: 'btn lg', onClick: () => Timer.resume() }, '▶ Retomar'),
-      r ? h('button', { class: 'btn lg', onClick: () => this.toggleNote() }, '📝 Nota') : null,
-      h('button', { class: 'btn lg', onClick: () => this.pickMission() }, '◉ Tema'),
-      r ? h('button', { class: 'btn lg', onClick: () => this.stop() }, '■ Encerrar') : null,
-      h('button', { class: 'btn lg', onClick: () => this.close() }, 'Sair (Esc)')].filter(Boolean));
+      !r ? h('button', { class: 'btn lg', onClick: () => { try { Timer.start(state.settings.last_theme || null); } catch (e) { toast(e.message, { error: true }); } } }, '▶ Start')
+        : st === 'running' ? h('button', { class: 'btn lg', onClick: () => Timer.pause() }, '❚❚ Pause') : h('button', { class: 'btn lg', onClick: () => Timer.resume() }, '▶ Resume'),
+      r ? h('button', { class: 'btn lg', onClick: () => this.toggleNote() }, '📝 Note') : null,
+      h('button', { class: 'btn lg', onClick: () => this.pickMission() }, '◉ Theme'),
+      r ? h('button', { class: 'btn lg', onClick: () => this.stop() }, '■ Stop') : null,
+      h('button', { class: 'btn lg', onClick: () => this.close() }, 'Exit (Esc)')].filter(Boolean));
     this.updateDigits();
   },
   updateDigits() {
     if (!this.el) return; const r = runningSession(); const main = $('#fz-main', this.el), sub = $('#fz-sub', this.el), fz = $('#fz-frozen', this.el);
     if (!r) { main.textContent = '00:00:00'; sub.textContent = ''; fz.textContent = ''; return; }
     const tm = sessionTimes(r); const p = openPause(r);
-    if (p) { main.textContent = fmtClock(nowMs() - ms(p.start)); fz.textContent = `líquido ${fmtClock(tm.net)}`; } else main.textContent = fmtClock(tm.net);
-    sub.textContent = `bruto ${fmtClock(tm.gross)} · pausas ${fmtClock(tm.pauseMs)}`;
+    if (p) { main.textContent = fmtClock(nowMs() - ms(p.start)); fz.textContent = `net ${fmtClock(tm.net)}`; } else main.textContent = fmtClock(tm.net);
+    sub.textContent = `gross ${fmtClock(tm.gross)} · breaks ${fmtClock(tm.pauseMs)}`;
   },
   toggleNote() { if (!runningSession()) return; this.noteBox.hidden = !this.noteBox.hidden; if (!this.noteBox.hidden) this.noteTa.focus(); },
-  addNote() { if (Timer.addQuickNote(this.noteTa.value)) { this.noteTa.value = ''; toast('Nota adicionada ao bloco'); } this.noteBox.hidden = true; },
+  addNote() { if (Timer.addQuickNote(this.noteTa.value)) { this.noteTa.value = ''; toast('Note added to the block'); } this.noteBox.hidden = true; },
   pickMission() {
     const mb = $('#fz-mission', this.el); const r = runningSession();
     const sel = themeSelect(r ? r.theme : state.settings.last_theme || '');
@@ -66,7 +66,7 @@ const Focus = {
     sel.addEventListener('keydown', (e) => e.stopPropagation()); sel.addEventListener('blur', () => this.renderControls());
     mb.replaceChildren(sel); sel.focus();
   },
-  async stop() { if (!runningSession()) return; if (await confirmDialog('Encerrar o bloco?', { okLabel: 'Encerrar' })) { const s = Timer.stop(); this.close(); if (s) Panel.closeSession(s.id); } },
+  async stop() { if (!runningSession()) return; if (await confirmDialog('Stop the block?', { okLabel: 'Stop' })) { const s = Timer.stop(); this.close(); if (s) Panel.closeSession(s.id); } },
   onKey(e) {
     if (!this.el) return; if (modalStack.length) return;
     const tag = document.activeElement?.tagName; if (tag === 'TEXTAREA' || tag === 'SELECT' || tag === 'INPUT') return;

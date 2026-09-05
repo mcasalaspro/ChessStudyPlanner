@@ -1,6 +1,6 @@
 /* ===== Store: state, persistence, domain ===== */
 const DEFAULT_THEMES = [
-  { id: 'calculo', name: 'Cálculo', color: '#e06b6b' },
+  { id: 'calculo', name: 'Calculation', color: '#e06b6b' },
   { id: 'sparring', name: 'Sparring', color: '#6e8ef0' },
   { id: 'positional', name: 'Positional Play', color: '#6cbf63' },
   { id: 'endgame', name: 'Endgame', color: '#4db6ac' },
@@ -12,7 +12,7 @@ const DEFAULT_THEMES = [
 ];
 const DEFAULT_SETTINGS = {
   name: '', themes: DEFAULT_THEMES.map((x) => ({ ...x })), last_theme: 'calculo',
-  break_every_min: 25, pause_autostop_min: 60, streak_min_min: 25, default_len_min: 60, snap_min: 15,
+  break_every_min: 25, pause_autostop_min: 60, streak_min_min: 25, default_len_min: 60, snap_min: 15, target_min: null,
   focus_anim: 'aurora', sound: true, updated_at: null,
 };
 let state = { v: 2, settings: JSON.parse(JSON.stringify(DEFAULT_SETTINGS)), sessions: [], missions: [] };
@@ -47,7 +47,7 @@ function dirty(kind, id) { if (Store.onDirty) Store.onDirty(kind, id); }
 function updateSettings(patch) { Object.assign(state.settings, patch, { updated_at: iso(Date.now()) }); dirty('settings', 'settings'); commit('settings'); }
 const themes = () => state.settings.themes;
 const themeById = (id) => themes().find((x) => x.id === id) || null;
-const themeName = (id) => themeById(id)?.name || 'Sem tema';
+const themeName = (id) => themeById(id)?.name || 'No theme';
 const themeColor = (id) => themeById(id)?.color || '#8a9bb3';
 function upsertTheme(th) {
   const list = themes().slice(); const i = list.findIndex((x) => x.id === th.id);
@@ -115,17 +115,17 @@ function findOverlap(startMs, endMs, excludeId) {
 function validateSession(data, excludeId) {
   const errs = [];
   const st = ms(data.started_at), en = data.ended_at ? ms(data.ended_at) : null;
-  if (Number.isNaN(st)) errs.push({ code: 'start', message: 'Início inválido.' });
+  if (Number.isNaN(st)) errs.push({ code: 'start', message: 'Invalid start time.' });
   if (en != null) {
-    if (!(en > st)) errs.push({ code: 'end', message: 'O fim precisa ser depois do início.' });
-    else if (en - st > 16 * HOUR) errs.push({ code: 'long', message: 'Sessão acima de 16 h. Divida em duas.' });
+    if (!(en > st)) errs.push({ code: 'end', message: 'End must be after the start.' });
+    else if (en - st > 16 * HOUR) errs.push({ code: 'long', message: 'Session longer than 16 h. Split it in two.' });
     const pz = normPauses({ pauses: data.pauses }, en).reduce((a, p) => a + (p.e - p.s), 0);
-    if (pz > en - st) errs.push({ code: 'pause', message: 'As pausas não podem ser maiores que a sessão.' });
+    if (pz > en - st) errs.push({ code: 'pause', message: 'Breaks cannot be longer than the session.' });
   }
-  if ((data.note_md || '').length > 20000) errs.push({ code: 'note', message: 'A nota ultrapassa 20.000 caracteres.' });
+  if ((data.note_md || '').length > 20000) errs.push({ code: 'note', message: 'The note exceeds 20,000 characters.' });
   if (en != null && en > st) {
     const c = findOverlap(st, en, excludeId);
-    if (c) errs.push({ code: 'overlap', message: `Conflita com outro bloco (${fmtDayShort(dayKeyOf(ms(c.started_at)))} ${fmtRange(ms(c.started_at), c.ended_at ? ms(c.ended_at) : nowMs())}).`, conflict: c });
+    if (c) errs.push({ code: 'overlap', message: `Overlaps another block (${fmtDayShort(dayKeyOf(ms(c.started_at)))} ${fmtRange(ms(c.started_at), c.ended_at ? ms(c.ended_at) : nowMs())}).`, conflict: c });
   }
   return errs;
 }

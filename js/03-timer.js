@@ -5,7 +5,7 @@ const Timer = {
   status() { const r = runningSession(); if (!r) return 'idle'; return openPause(r) ? 'paused' : 'running'; },
 
   start(theme) {
-    if (runningSession()) throw new Error('Já existe um bloco em andamento.');
+    if (runningSession()) throw new Error('A block is already running.');
     const nowN = Math.round(nowMs()); const now = iso(nowN);
     // A block planned in advance that covers "now" (or starts within 15 min) is adopted by the timer instead of conflicting with it.
     const planned = state.sessions.find((x) => isLive(x) && x.ended_at && ms(x.started_at) > ms(x.created_at) + 5 * MIN && ms(x.started_at) <= nowN + 15 * MIN && ms(x.ended_at) > nowN);
@@ -74,9 +74,9 @@ const Timer = {
     r.ended_at = iso(end); r.meta = { ...(r.meta || {}), autoclosed: true, autoclosed_reason: reason }; r.updated_at = iso(Date.now());
     dirty('session', r.id); commit('timer', { status: 'idle' });
     const msg = reason === 'pause'
-      ? `A pausa passou de ${state.settings.pause_autostop_min} min, então o bloco foi encerrado no início da pausa (${hm(end)}). O tempo de pausa não contou.`
-      : `O app ficou mais de 12 h sem sinal com o cronômetro ligado. O bloco foi encerrado em ${fmtDayShort(dayKeyOf(end))} ${hm(end)}.`;
-    showBanner('autoclosed-' + r.id, { text: msg, warn: true, actions: [{ label: 'Reabrir/ajustar', primary: true, onClick: () => { hideBanner('autoclosed-' + r.id); Panel.editSession(r.id); } }] });
+      ? `The break went past ${state.settings.pause_autostop_min} min, so the block was closed at the start of the break (${hm(end)}). Break time was not counted.`
+      : `The app went more than 12 h without a signal while the timer was running. The block was closed on ${fmtDayShort(dayKeyOf(end))} at ${hm(end)}.`;
+    showBanner('autoclosed-' + r.id, { text: msg, warn: true, actions: [{ label: 'Reopen / adjust', primary: true, onClick: () => { hideBanner('autoclosed-' + r.id); Panel.editSession(r.id); } }] });
   },
   heartbeat() {
     const r = runningSession(); if (!r) return;
@@ -94,10 +94,10 @@ const Timer = {
     if (gap > 3 * MIN) {
       const id = 'absence';
       showBanner(id, {
-        text: `Você estava mesmo estudando até agora? O app ficou fechado desde ${fmtDayShort(dayKeyOf(lastSeen))} ${hm(lastSeen)}.`, warn: true,
+        text: `Were you really studying until now? The app has been closed since ${fmtDayShort(dayKeyOf(lastSeen))} ${hm(lastSeen)}.`, warn: true,
         actions: [
-          { label: 'Sim, seguir', primary: true, onClick: () => { hideBanner(id); this.heartbeat(); } },
-          { label: 'Encerrar quando saí', onClick: () => { hideBanner(id); const s = this.stop(lastSeen); if (s) Panel.closeSession(s.id); } },
+          { label: 'Yes, keep going', primary: true, onClick: () => { hideBanner(id); this.heartbeat(); } },
+          { label: 'Stop when I left', onClick: () => { hideBanner(id); const s = this.stop(lastSeen); if (s) Panel.closeSession(s.id); } },
         ],
       });
     }
@@ -117,18 +117,26 @@ const Timer = {
       if (pausedFor > state.settings.pause_autostop_min * MIN) { this.autoClose(r, ms(op.start), 'pause'); return; }
       if (pausedFor > 10 * MIN && this._remindedPause !== op.start) {
         this._remindedPause = op.start;
-        const msg = 'Pausado há 10 min — retomar ou encerrar?';
-        toast(msg, { duration: 8000, action: 'Retomar', onAction: () => this.resume() }); notify(msg);
+        const msg = 'Paused for 10 min — resume or stop?';
+        toast(msg, { duration: 8000, action: 'Resume', onAction: () => this.resume() }); notify(msg);
       }
     } else {
-      // break reminder every N net minutes ("Avisar pausa a cada X min")
+      // session target set by the 30 min / 1 h / 2 h buttons: stop by itself when the net time is reached
+      const target = +state.settings.target_min || 0;
+      if (target > 0 && sessionTimes(r).net >= target * MIN) {
+        const stopped = this.stop();
+        updateSettings({ target_min: null });
+        if (stopped) { const msg = `Target of ${fmtHM(target)} reached — block stopped.`; toast(msg, { duration: 8000 }); notify(msg); Panel.closeSession(stopped.id); }
+        return;
+      }
+      // break reminder every N net minutes
       const every = +state.settings.break_every_min || 0;
       if (every > 0) {
         const netMinutes = sessionTimes(r).net / MIN; const k = Math.floor(netMinutes / every);
         if (k > 0 && k > this._breakNotified) {
           this._breakNotified = k;
-          const msg = `${Math.round(netMinutes)} min de estudo — hora de uma pausa?`;
-          toast(msg, { duration: 10000, action: 'Pausar', onAction: () => this.pause() }); notify(msg); if (state.settings.sound) playBell(true);
+          const msg = `${Math.round(netMinutes)} min of study — time for a break?`;
+          toast(msg, { duration: 10000, action: 'Take a break', onAction: () => this.pause() }); notify(msg); if (state.settings.sound) playBell(true);
         }
       }
     }

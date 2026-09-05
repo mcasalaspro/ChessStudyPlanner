@@ -2,7 +2,7 @@
    The publishable key is meant to be public: access is limited per account by
    the database's row level security policies. */
 window.CSP_CONFIG = {
-  supabaseUrl: 'https://uytbslmuiauougzctrdk.supabase.co',
-  supabaseAnonKey: 'sb_publishable_ylIXAw_d7-3d0TWQPXNDig_Hf8Zdzvk',
+  supabaseUrl: ''  /* e.g. https://xxxxxxxx.supabase.co  (no /rest/v1 at the end) */,
+  supabaseAnonKey: ''  /* e.g. sb_publishable_xxxxxxxx */,
   homeUrl: '',
 };

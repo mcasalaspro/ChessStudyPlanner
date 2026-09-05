@@ -3,10 +3,13 @@ const Auth = {
   client: null, user: null, configured: false,
   async init() {
     const cfg = window.CSP_CONFIG || {};
-    this.configured = !!(cfg.supabaseUrl && cfg.supabaseAnonKey);
+    // tolerate a URL pasted with a trailing slash or with the /rest/v1 suffix
+    const url = String(cfg.supabaseUrl || '').trim().replace(/\/+$/, '').replace(/\/rest\/v\d+$/, '');
+    const key = String(cfg.supabaseAnonKey || '').trim();
+    this.configured = !!(url && key);
     if (!this.configured) return 'unconfigured';
     if (!window.supabase || !window.supabase.createClient) return 'nolib';
-    this.client = window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false } });
+    this.client = window.supabase.createClient(url, key, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false } });
     try { const { data } = await this.client.auth.getSession(); this.user = data?.session?.user || null; } catch (e) { console.warn(e); this.user = null; }
     this.client.auth.onAuthStateChange((event, session) => {
       const u = session?.user || null; const changed = (u?.id || null) !== (this.user?.id || null);

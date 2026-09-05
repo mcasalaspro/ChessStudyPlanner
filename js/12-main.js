@@ -14,7 +14,7 @@ const App = {
   blockedScreen(mode) {
     const msg = mode === 'nolib'
       ? 'Could not load the sign-in library. Check your internet connection and reload the page.'
-      : 'This copy is not connected to a database yet. Add the project URL and key to config.js.';
+      : 'This copy is not connected to a database yet. Open config.js and put the project URL and key inside the quotes.';
     setKids($('#view'), h('div', { class: 'login' }, h('div', { class: 'card' }, h('img', { src: 'assets/logo.png', alt: '' }), h('h1', null, 'Chess Study Planner'), h('p', { class: 'muted' }, msg),
       h('button', { class: 'btn primary', style: { marginTop: '14px' }, onClick: () => location.reload() }, 'Reload'))));
   },

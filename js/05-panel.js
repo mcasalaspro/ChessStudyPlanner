@@ -133,6 +133,7 @@ const Panel = {
       h('label', { class: 'field' }, h('span', null, 'Your name (shown on the report)'), h('input', { type: 'text', value: s.name, maxlength: 60, onChange: (e) => updateSettings({ name: e.target.value.trim() }) })),
       h('h3', null, 'Study themes'), themeList, h('div', { class: 'row' }, newName, h('button', { class: 'btn sm', onClick: addTheme }, '+ Add')),
       h('h3', null, 'Timer'),
+      h('label', { class: 'field inline' }, h('span', null, 'Break length (min)'), h('select', { style: { width: 'auto' }, onChange: (e) => updateSettings({ break_len_min: +e.target.value }) }, ...[10, 15, 30].map((v) => h('option', { value: v, selected: v === (s.break_len_min || 15) }, v)))),
       num('Close a forgotten break after (min)', 'pause_autostop_min', 5, 600), num('Daily minimum for the streak (min)', 'streak_min_min', 1, 600),
       h('label', { class: 'field inline' }, h('span', null, 'Sound on break reminder and stop'), h('input', { type: 'checkbox', class: 'switch', checked: !!s.sound, onChange: (e) => updateSettings({ sound: e.target.checked }) })), notifRow,
       h('h3', null, 'Calendar'),

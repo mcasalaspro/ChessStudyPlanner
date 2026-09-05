@@ -35,7 +35,7 @@ function toastUndo(msg) { toast(msg, { action: 'Undo', duration: 8000, onAction:
 const banners = new Map();
 function showBanner(id, { text, warn, actions = [] }) {
   hideBanner(id);
-  const el = h('div', { class: 'banner' + (warn ? ' warn' : ''), role: 'alert' }, h('div', { class: 'grow' }, text),
+  const el = h('div', { class: 'banner' + (warn ? ' warn' : '') + (id === 'quote' ? ' quote' : ''), role: 'alert' }, h('div', { class: 'grow' }, text),
     ...actions.map((a) => h('button', { class: 'btn sm ' + (a.primary ? 'primary' : ''), onClick: a.onClick }, a.label)),
     h('button', { class: 'btn ghost icon sm', 'aria-label': 'Dismiss', onClick: () => hideBanner(id) }, '✕'));
   banners.set(id, el); const root = $('#banners'); if (root) root.append(el);

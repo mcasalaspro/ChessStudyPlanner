@@ -28,7 +28,8 @@ const TimerCard = {
       h('div', { class: 'clock ' + st }, h('div', { class: 'clock-frozen num', id: 'clk-frozen' }), h('div', { class: 'clock-main num', id: 'clk-main', role: 'timer' }, '00:00'), h('div', { class: 'clock-sub', id: 'clk-sub' }, 'Pick a theme and start.')),
       h('div', { class: 'actions' }, focusBtn, startBtn, pauseBtn, plusBtn, stopBtn),
       presets,
-      h('div', { class: 'row center small muted', style: { gap: '8px' } }, 'Break reminder every (min)', h('span', { style: { width: '66px' } }, breakIn)),
+      h('div', { class: 'row center small muted', style: { gap: '6px' } }, 'Study', h('span', { style: { width: '62px' } }, breakIn), 'min · break',
+        h('select', { style: { width: 'auto' }, 'aria-label': 'Break length (min)', onChange: (e) => updateSettings({ break_len_min: +e.target.value }) }, ...[10, 15, 30].map((v) => h('option', { value: v, selected: v === (s.break_len_min || 15) }, v))), 'min'),
       quick);
     this.updateDigits();
   },
@@ -56,35 +57,27 @@ const TimerCard = {
   },
 };
 
-/* ---------- Log hours manually ---------- */
-const ManualCard = {
-  mount(root) {
-    const now = new Date(nowMs());
-    const themeSel = themeSelect(state.settings.last_theme);
-    const dateIn = h('input', { type: 'date', value: ymd(now) });
-    const timeIn = h('input', { type: 'time', value: `${pad2(now.getHours())}:00` });
-    const hIn = h('input', { type: 'number', min: 0, max: 16, value: 1, 'aria-label': 'Hours' }), mIn = h('input', { type: 'number', min: 0, max: 59, step: 5, value: 0, 'aria-label': 'Minutes' });
-    const noteIn = h('input', { type: 'text', class: 'grow', placeholder: 'e.g. rook endgame calculation — long variations', maxlength: 2000 });
-    const err = h('div', { class: 'errors', hidden: true });
-    const setDur = (mins) => { hIn.value = Math.floor(mins / 60); mIn.value = mins % 60; };
-    const submit = () => {
-      const [y, mo, d] = dateIn.value.split('-').map(Number); const [hh, mm] = timeIn.value.split(':').map(Number);
-      const start = new Date(y, mo - 1, d, hh, mm).getTime(); const dur = (+hIn.value || 0) * 60 + (+mIn.value || 0);
-      if (!dur) { err.hidden = false; err.textContent = 'Enter a length.'; return; }
-      const data = { theme: themeSel.value, started_at: iso(start), ended_at: iso(start + dur * MIN), source: 'manual', note_md: noteIn.value.trim() };
-      const errs = validateSession(data);
-      if (errs.length) { err.hidden = false; setKids(err, ...errs.map((e) => h('div', null, e.message, ' ', e.conflict ? h('a', { href: '#', onClick: (ev) => { ev.preventDefault(); Panel.editSession(e.conflict.id); } }, 'Open it') : null))); return; }
-      err.hidden = true; const s = createSession(data); noteIn.value = ''; toastUndo(`${fmtHM(dur)} block logged`); Calendar.reveal(s.id);
-    };
-    noteIn.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
-    root.append(h('section', { class: 'card', id: 'card-manual' },
-      h('div', { class: 'card-head' }, h('h2', null, 'Log hours manually')),
-      h('div', { class: 'manual-row' }, themeSel, dateIn, timeIn,
-        h('span', { class: 'row nowrap' }, hIn, h('span', { class: 'muted small' }, 'h'), mIn, h('span', { class: 'muted small' }, 'min')),
-        ...DURATION_PRESETS.map(([mins, label]) => h('button', { class: 'btn sm', type: 'button', onClick: () => setDur(mins) }, label))),
-      h('div', { class: 'manual-row' }, noteIn, h('button', { class: 'btn primary', onClick: submit }, 'Log')), err));
-    on('settings', () => { const v = themeSel.value; setKids(themeSel, ...themes().map((th) => h('option', { value: th.id, selected: th.id === v }, th.name))); });
+/* ---------- Today (full width, on top) ---------- */
+const TodayCard = {
+  el: null,
+  mount(root) { this.el = h('section', { class: 'card today-card', id: 'card-today' }); root.append(this.el); this.render(); on('change', () => this.render()); on('tick', () => this.updateNow()); },
+  render() {
+    const tk = todayKey(); const info = netByDay(tk, tk).get(tk); const total = info?.net || 0; const count = info?.count || 0;
+    const grid = Calendar.buildGrid([tk], true, { big: true });
+    setKids(this.el,
+      h('div', { class: 'card-head' },
+        h('div', { class: 'row' }, h('h2', null, 'Today'), h('span', { class: 'muted small' }, fmtDayLong(tk))),
+        h('div', { class: 'row' }, h('span', { class: 'today-total num' }, fmtHM(total / MIN)), h('span', { class: 'muted small' }, count ? `${count} block${count > 1 ? 's' : ''}` : 'no blocks yet'),
+          ...DURATION_PRESETS.map(([mins, label]) => h('button', { class: 'btn sm', title: `Add a ${label} block`, onClick: () => this.add(mins) }, '+ ' + label)))),
+      h('div', { class: 'tl-wrap' }, grid));
+    Calendar.attachPointer(grid);
+    this.updateNow();
   },
+  add(mins) {
+    const now = new Date(nowMs()); const start = dayMs(todayKey(), Math.floor((now.getHours() * 60 + now.getMinutes()) / 15) * 15);
+    Calendar.createAt(start, mins);
+  },
+  updateNow() { Calendar.paintNow(this.el); },
 };
 
 /* ---------- Missions ---------- */
@@ -95,16 +88,28 @@ const MissionsCard = {
     const list = activeMissions();
     const nameIn = h('input', { type: 'text', class: 'grow', placeholder: 'Name (e.g. Calculation)', maxlength: 80 });
     const themeSel = themeSelect(state.settings.last_theme); const goalSel = h('select', null, ...GOAL_OPTIONS.map((g) => h('option', { value: g }, `${g}h`)));
-    const deadIn = h('input', { type: 'date', value: addDays(todayKey(), 90) });
+    const startIn = h('input', { type: 'date', value: todayKey(), title: 'Start: hours from this date on count towards the goal' });
+    const deadIn = h('input', { type: 'date', value: addDays(todayKey(), 90), title: 'Deadline' });
     const hint = h('div', { class: 'hint-box' });
-    const updHint = () => { const d = deadIn.value ? daysBetween(todayKey(), deadIn.value) : null; const g = +goalSel.value; hint.textContent = d == null ? 'Pick a deadline.' : d <= 0 ? 'The deadline must be in the future.' : `${d} days left — ${dec1(g / d)}h per day on average`; };
-    goalSel.addEventListener('change', updHint); deadIn.addEventListener('change', updHint); updHint();
-    const create = () => { if (!deadIn.value || daysBetween(todayKey(), deadIn.value) <= 0) { toast('Pick a deadline in the future', { error: true }); return; } createMission({ name: nameIn.value, theme: themeSel.value, goal_hours: +goalSel.value, deadline: deadIn.value }); nameIn.value = ''; toast('Mission created'); };
+    const updHint = () => {
+      const g = +goalSel.value;
+      if (!startIn.value || !deadIn.value) { hint.textContent = 'Pick a start date and a deadline.'; return; }
+      const span = daysBetween(startIn.value, deadIn.value); const left = daysBetween(todayKey(), deadIn.value);
+      if (span <= 0) { hint.textContent = 'The deadline must be after the start date.'; return; }
+      hint.textContent = `${span} days in the window${left !== span ? ` · ${left > 0 ? `${left} days left` : 'window already closed'}` : ''} — ${dec1(g / Math.max(1, left > 0 ? left : span))}h per day to finish`;
+    };
+    goalSel.addEventListener('change', updHint); deadIn.addEventListener('change', updHint); startIn.addEventListener('change', updHint); updHint();
+    const create = () => {
+      if (!startIn.value || !deadIn.value || daysBetween(startIn.value, deadIn.value) <= 0) { toast('The deadline must be after the start date', { error: true }); return; }
+      createMission({ name: nameIn.value, theme: themeSel.value, goal_hours: +goalSel.value, start_date: startIn.value, deadline: deadIn.value }); nameIn.value = ''; toast('Mission created');
+    };
     nameIn.addEventListener('keydown', (e) => { if (e.key === 'Enter') create(); });
     setKids(this.el,
       h('div', { class: 'card-head' }, h('div', null, h('h2', null, 'Missions'), h('p', { class: 'sub' }, 'Hour goal per theme with a deadline, in steps of 50 hours.'))),
       list.length ? h('div', { class: 'mission-list' }, ...list.map((m) => this.row(m))) : h('p', { class: 'muted italic small' }, 'No missions yet — create one below.'),
-      h('div', { class: 'manual-row' }, nameIn, themeSel, goalSel, deadIn, h('button', { class: 'btn primary', onClick: create }, 'Create')),
+      h('div', { class: 'manual-row' }, nameIn, themeSel, goalSel,
+        h('span', { class: 'row nowrap' }, h('span', { class: 'muted small' }, 'from'), startIn, h('span', { class: 'muted small' }, 'to'), deadIn),
+        h('button', { class: 'btn primary', onClick: create }, 'Create')),
       hint);
   },
   row(m) {
@@ -112,10 +117,11 @@ const MissionsCard = {
     const status = m.status === 'done' || st.complete ? h('span', { class: 'tag ok' }, '✓ done') : st.overdue ? h('span', { class: 'tag bad' }, `${-st.daysLeft} d overdue`) : null;
     const meta = m.status === 'done' || st.complete ? `${fmtHM(st.done)} of ${m.goal_hours}h`
       : st.daysLeft != null ? `${fmtHM(st.done)} of ${m.goal_hours}h · ${st.daysLeft} days left${st.perDay != null ? ` — ${dec1(st.perDay / 60)}h per day` : ''}` : `${fmtHM(st.done)} of ${m.goal_hours}h`;
+    const window_ = m.start_date && m.deadline ? ` · ${fmtDate(m.start_date)} → ${fmtDate(m.deadline)}` : m.deadline ? ` · due ${fmtDate(m.deadline)}` : '';
     return h('button', { class: 'mission-row', style: { '--c': themeColor(m.theme) }, onClick: () => Panel.mission(m.id) },
       h('div', { class: 'row between' }, h('span', { class: 'row' }, themeDot(m.theme), h('b', null, m.name), h('span', { class: 'muted small' }, themeName(m.theme)), status), h('b', { class: 'num' }, `${pct}%`)),
       h('div', { class: 'progress' }, h('i', { style: { width: pct + '%' } })),
-      h('div', { class: 'muted small' }, meta, m.deadline ? ` · due ${fmtDate(m.deadline)}` : ''));
+      h('div', { class: 'muted small' }, meta, window_));
   },
 };
 
@@ -147,14 +153,16 @@ const Calendar = {
     if (this.focusId) { const b = $(`.blk[data-id="${this.focusId}"]`, grid); if (b) b.focus(); this.focusId = null; }
   },
   /* rows = days, 24 hour cells per row, blocks positioned by time; used by the calendar and the report */
-  buildGrid(days, interactive) {
+  buildGrid(days, interactive, { big = false } = {}) {
     const tk = todayKey(); const totals = netByDay(days[0], days[days.length - 1]); const now = nowMs();
     const head = h('div', { class: 'tl-row tl-head' }, h('div', { class: 'tl-label' }), h('div', { class: 'tl-hours' }, ...Array.from({ length: 12 }, (_, i) => h('span', null, i * 2))), h('div', { class: 'tl-total' }, 'Total'));
     const rows = days.map((k) => {
       const tot = totals.get(k)?.net || 0;
       const label = interactive ? h('button', { class: 'tl-label', title: 'See the blocks of this day', onClick: () => Panel.day(k) }, fmtDayShort(k)) : h('div', { class: 'tl-label' }, fmtDayShort(k));
+      const track = h('div', { class: 'tl-track', dataset: { date: k } }, ...Array.from({ length: 24 }, () => h('i', { class: 'cell' })));
+      if (k === tk) track.append(h('div', { class: 'now-line' }, h('span', { class: 'now-lbl num' })));
       return h('div', { class: 'tl-row' + (k === tk ? ' today' : '') + (isMonday(k) ? ' week-start' : '') + (k > tk ? ' future' : ''), dataset: { date: k } },
-        label, h('div', { class: 'tl-track', dataset: { date: k } }, ...Array.from({ length: 24 }, () => h('i', { class: 'cell' }))), h('div', { class: 'tl-total num' }, tot ? fmtHM(tot / MIN) : ''));
+        label, track, h('div', { class: 'tl-total num' }, tot ? fmtHM(tot / MIN) : ''));
     });
     const tracks = {}; rows.forEach((r) => { tracks[r.dataset.date] = $('.tl-track', r); });
     const rangeStart = dayMs(days[0], 0), rangeEnd = dayMs(addDays(days[days.length - 1], 1), 0);
@@ -164,16 +172,23 @@ const Calendar = {
       if (en <= rangeStart || st >= rangeEnd) continue;
       for (const sg of this.segments(st, en)) { const tr = tracks[sg.day]; if (tr) tr.append(this.blockEl(s, sg, interactive)); }
     }
-    return h('div', { class: 'tl' + (interactive ? '' : ' static'), role: 'grid' }, head, ...rows);
+    return h('div', { class: 'tl' + (interactive ? '' : ' static') + (big ? ' big' : ''), role: 'grid' }, head, ...rows);
   },
   segments(st, en) { const out = []; let cur = st, guard = 0; while (cur < en && guard++ < 40) { const day = dayKeyOf(cur); const dayEnd = dayMs(addDays(day, 1), 0); const segEnd = Math.min(en, dayEnd); const a = (cur - dayMs(day, 0)) / DAY, b = (segEnd - dayMs(day, 0)) / DAY; out.push({ day, left: a * 100, width: Math.max(0.35, (b - a) * 100), start: cur, end: segEnd }); cur = segEnd; } return out; },
   blockEl(s, sg, interactive = true) {
     const tm = sessionTimes(s); const live = !s.ended_at; const color = themeColor(s.theme);
     const title = `${themeName(s.theme)} · ${live ? `${hm(tm.start)} – running` : fmtRange(tm.start, tm.end)} · ${fmtHM(tm.net / MIN)}${s.note_md ? '\n' + mdExcerpt(s.note_md, 140) : ''}`;
     return h('div', { class: 'blk' + (live ? ' live' : '') + (tm.start > nowMs() ? ' planned' : '') + (interactive && s.id === this.selectedId ? ' selected' : ''), role: 'gridcell', tabindex: interactive ? '0' : null, title, 'aria-label': title.replace('\n', '. '), dataset: { id: s.id, day: sg.day }, style: { left: sg.left + '%', width: sg.width + '%', '--c': color, color: contrastInk(color) }, onKeydown: interactive ? (e) => this.onKey(e, s) : null },
-      h('span', { class: 't' }, themeName(s.theme)), s.note_md ? noteIcon() : null);
+      h('span', { class: 't' }, themeName(s.theme)),
+      h('span', { class: 'when' }, live ? `${hm(tm.start)} – now` : `${fmtRange(tm.start, tm.end)} · ${fmtHM(tm.net / MIN)}`),
+      s.note_md ? noteIcon() : null);
   },
-  updateLive() { const r = runningSession(); if (!r) return; const b = $(`.blk.live[data-id="${r.id}"]`, this.el); if (!b) return; const day = b.dataset.day; const st = Math.max(ms(r.started_at), dayMs(day, 0)); const en = Math.min(nowMs(), dayMs(addDays(day, 1), 0)); b.style.width = Math.max(0.35, ((en - st) / DAY) * 100) + '%'; },
+  /* white bar marking the current time inside today's row */
+  paintNow(root) {
+    const pct = (minuteOfDay(nowMs()) / 1440) * 100;
+    $$('.now-line', root || document).forEach((el) => { el.style.left = pct + '%'; const l = $('.now-lbl', el); if (l) l.textContent = hm(nowMs()); });
+  },
+  updateLive() { this.paintNow(this.el); const r = runningSession(); if (!r) return; const b = $(`.blk.live[data-id="${r.id}"]`, this.el); if (!b) return; const day = b.dataset.day; const st = Math.max(ms(r.started_at), dayMs(day, 0)); const en = Math.min(nowMs(), dayMs(addDays(day, 1), 0)); b.style.width = Math.max(0.35, ((en - st) / DAY) * 100) + '%'; },
   onKey(e, s) {
     const snap = Math.max(5, state.settings.snap_min || 15) * MIN;
     const tm = sessionTimes(s); let start = tm.start, end = tm.end;

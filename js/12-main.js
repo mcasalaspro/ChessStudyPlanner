@@ -12,11 +12,17 @@ const App = {
   },
   /* The app always works against the online database: no offline-only mode that could silently lose data. */
   blockedScreen(mode) {
-    const msg = mode === 'nolib'
-      ? 'Could not load the sign-in library. Check your internet connection and reload the page.'
-      : 'This copy is not connected to a database yet. Open config.js and put the project URL and key inside the quotes.';
-    setKids($('#view'), h('div', { class: 'login' }, h('div', { class: 'card' }, h('img', { src: 'assets/logo.png', alt: '' }), h('h1', null, 'Chess Study Planner'), h('p', { class: 'muted' }, msg),
-      h('button', { class: 'btn primary', style: { marginTop: '14px' }, onClick: () => location.reload() }, 'Reload'))));
+    const cfg = window.CSP_CONFIG;
+    let msg, detail;
+    if (mode === 'nolib') { msg = 'Could not load the sign-in library. Check your internet connection and reload the page.'; }
+    else if (!cfg) { msg = 'config.js did not load.'; detail = 'The file is missing from this folder, has another name (config.js.txt?), or the browser is showing an old cached copy. Press Ctrl+F5.'; }
+    else if (!String(cfg.supabaseUrl || '').trim()) { msg = 'config.js loaded, but supabaseUrl is empty.'; detail = 'Put the address inside the quotes, not after //.'; }
+    else { msg = 'config.js loaded, but supabaseAnonKey is empty.'; detail = 'Put the key inside the quotes, not after //.'; }
+    const read = cfg ? `read: supabaseUrl = "${String(cfg.supabaseUrl || '').slice(0, 60)}" · key = ${String(cfg.supabaseAnonKey || '').trim() ? 'filled' : 'empty'}` : 'window.CSP_CONFIG is undefined';
+    setKids($('#view'), h('div', { class: 'login' }, h('div', { class: 'card' }, h('img', { src: 'assets/logo.png', alt: '' }), h('h1', null, 'Chess Study Planner'),
+      h('p', { class: 'muted' }, msg), detail ? h('p', { class: 'muted small' }, detail) : null,
+      h('p', { class: 'muted small', style: { marginTop: '10px', wordBreak: 'break-all' } }, read, h('br'), 'page: ', location.href.split('#')[0]),
+      h('button', { class: 'btn primary', style: { marginTop: '14px' }, onClick: () => location.reload(true) }, 'Reload'))));
   },
   onAuthChange() { if (Auth.user && !this.mounted) this.startSession(); else if (!Auth.user && this.mounted) location.reload(); },
   startSession() {
@@ -29,8 +35,17 @@ const App = {
     document.addEventListener('visibilitychange', () => { Clock.resync(); if (!document.hidden) { Timer.tick(); if (runningSession()) Timer.ensureLoops(); } Timer.heartbeat(); });
     window.addEventListener('pagehide', () => Timer.heartbeat());
     this.route(); this.renderHeader();
+    Background.apply();
     Timer.hydrate();
+    this.dailyQuote();
     Sync.pull();
+  },
+  /* One quote per day, shown once when the app is opened. */
+  dailyQuote() {
+    const key = 'csp:v2:quote:' + (Auth.user?.id || 'x');
+    try { if (localStorage.getItem(key) === todayKey()) return; localStorage.setItem(key, todayKey()); } catch { /* */ }
+    const q = quoteOfDay();
+    showBanner('quote', { text: h('span', null, h('i', null, `“${q.t}”`), h('span', { class: 'muted' }, ` — ${q.s}`)) });
   },
   route() {
     const hash = location.hash.replace(/^#\/?/, '');
@@ -41,9 +56,11 @@ const App = {
       document.body.dataset.page = 'report'; this.currentView = ReportView; ReportView.mount(root);
     } else {
       document.body.dataset.page = 'main'; this.currentView = null;
+      const top = h('div', { class: 'top-row' });
       const left = h('div', { class: 'col-left' }), right = h('div', { class: 'col-right' });
-      root.append(h('div', { class: 'columns' }, left, right));
-      TimerCard.mount(left); ManualCard.mount(left); ReportsCard.mount(left);
+      root.append(top, h('div', { class: 'columns' }, left, right));
+      TodayCard.mount(top);
+      TimerCard.mount(left); ReportsCard.mount(left);
       MissionsCard.mount(right); Calendar.mount(right);
     }
     this.renderHeader(); window.scrollTo({ top: 0 });

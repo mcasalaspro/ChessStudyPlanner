@@ -1,18 +1,21 @@
-/* ===== Modo foco ===== */
+/* ===== Focus mode ===== */
 const Focus = {
   el: null, raf: null, idleTm: null, lock: null, offs: [], t0: 0, stars: null, waveOffset: 0,
   isOpen() { return !!this.el; },
   open() {
     if (this.el) return;
-    const el = h('div', { class: 'focus', role: 'dialog', 'aria-label': 'Modo foco' });
+    const el = h('div', { class: 'focus', role: 'dialog', 'aria-label': 'Focus mode' });
     const canvas = h('canvas'); el.append(canvas);
     const missionBox = h('div', { class: 'fz-mission', id: 'fz-mission' });
-    const center = h('div', { class: 'fz-center' }, missionBox, h('div', { class: 'fz-frozen num', id: 'fz-frozen' }), h('div', { class: 'fz-main num', id: 'fz-main' }, '00:00:00'), h('div', { class: 'fz-sub', id: 'fz-sub' }));
+    const center = h('div', { class: 'fz-center' }, missionBox, h('div', { class: 'fz-frozen num', id: 'fz-frozen' }), h('div', { class: 'fz-main num', id: 'fz-main' }, '00:00:00'), h('div', { class: 'fz-sub', id: 'fz-sub' }),
+      h('div', { class: 'fz-plan', id: 'fz-plan' }, h('div', { class: 'fz-plan-track', id: 'fz-plan-track' }), h('div', { class: 'fz-plan-legend', id: 'fz-plan-legend' })));
+    const q = quoteOfDay();
+    const quote = h('div', { class: 'fz-quote' }, h('i', null, `“${q.t}”`), h('span', null, `— ${q.s}`));
     const noteTa = h('textarea', { placeholder: 'Quick note (Ctrl+Enter adds it to the block)', 'aria-label': 'Quick note' });
-    const noteBox = h('div', { class: 'fz-note', hidden: true }, noteTa, h('div', { class: 'row' }, h('button', { class: 'btn sm', onClick: () => { noteBox.hidden = true; } }, 'Cancel'), h('button', { class: 'btn sm primary', onClick: () => this.addNote() }, 'Adicionar')));
+    const noteBox = h('div', { class: 'fz-note', hidden: true }, noteTa, h('div', { class: 'row' }, h('button', { class: 'btn sm', onClick: () => { noteBox.hidden = true; } }, 'Cancel'), h('button', { class: 'btn sm primary', onClick: () => this.addNote() }, 'Add')));
     noteTa.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); this.addNote(); } if (e.key === 'Escape') { noteBox.hidden = true; } });
     const bar = h('div', { class: 'fz-bar', id: 'fz-bar' });
-    el.append(h('div', { class: 'fz-hint' }, 'Space pause · N note · M theme · E stop · Esc exit'), center, noteBox, bar);
+    el.append(h('div', { class: 'fz-hint' }, 'Space pause · N note · M theme · E stop · Esc exit'), center, quote, noteBox, bar);
     document.body.append(el); this.el = el; this.canvas = canvas; this.noteBox = noteBox; this.noteTa = noteTa;
     this.renderControls();
     // fullscreen (fallback: overlay already covers the viewport)
@@ -23,8 +26,8 @@ const Focus = {
     const onVis = () => { if (document.hidden) this.stopAnim(); else { this.startAnim(); this.requestWakeLock(); } }; document.addEventListener('visibilitychange', onVis);
     const onFs = () => { if (!document.fullscreenElement && this.el) this.close(false); }; document.addEventListener('fullscreenchange', onFs);
     const onResize = () => this.resize(); window.addEventListener('resize', onResize);
-    this.offs = [() => document.removeEventListener('keydown', onKey, true), () => document.removeEventListener('visibilitychange', onVis), () => document.removeEventListener('fullscreenchange', onFs), () => window.removeEventListener('resize', onResize), on('tick', () => this.updateDigits()), on('change', () => this.renderControls())];
-    this.t0 = performance.now(); this.resize(); this.startAnim(); this.wake(); this.updateDigits();
+    this.offs = [() => document.removeEventListener('keydown', onKey, true), () => document.removeEventListener('visibilitychange', onVis), () => document.removeEventListener('fullscreenchange', onFs), () => window.removeEventListener('resize', onResize), on('tick', () => { this.updateDigits(); this.renderPlan(); }), on('change', () => { this.renderControls(); this.renderPlan(); })];
+    this.t0 = performance.now(); this.resize(); this.startAnim(); this.wake(); this.updateDigits(); this.renderPlan();
   },
   close(exitFs = true) {
     if (!this.el) return;
@@ -57,6 +60,36 @@ const Focus = {
     if (p) { main.textContent = fmtClock(nowMs() - ms(p.start)); fz.textContent = `net ${fmtClock(tm.net)}`; } else main.textContent = fmtClock(tm.net);
     sub.textContent = `gross ${fmtClock(tm.gross)} · breaks ${fmtClock(tm.pauseMs)}`;
   },
+  /* Horizontal plan: white = study stretches, blue = breaks, with a marker for the current moment. */
+  renderPlan() {
+    if (!this.el) return;
+    const track = $('#fz-plan-track', this.el), legend = $('#fz-plan-legend', this.el); if (!track) return;
+    const study = Math.max(5, +state.settings.break_every_min || 25), brk = Math.max(5, +state.settings.break_len_min || 15);
+    const target = +state.settings.target_min || 0;
+    const segs = []; let acc = 0;
+    if (target > 0) {
+      while (acc < target) { const len = Math.min(study, target - acc); segs.push({ kind: 'study', len }); acc += len; if (acc < target) { segs.push({ kind: 'break', len: brk }); } }
+    } else {
+      for (let i = 0; i < 2; i++) { segs.push({ kind: 'study', len: study }); segs.push({ kind: 'break', len: brk }); }
+    }
+    const totalStudy = segs.filter((x) => x.kind === 'study').reduce((a, x) => a + x.len, 0);
+    const totalSpan = segs.reduce((a, x) => a + x.len, 0);
+    const r = runningSession(); const done = r ? sessionTimes(r).net / MIN : 0;
+    // the marker walks over the study stretches only, since breaks do not count as net time
+    let markLeft = 0, walked = 0;
+    for (const sg of segs) {
+      if (sg.kind === 'study') {
+        if (walked + sg.len >= done) { markLeft += ((done - walked) / totalSpan) * 100; walked = done; break; }
+        walked += sg.len;
+      }
+      markLeft += (sg.len / totalSpan) * 100;
+    }
+    setKids(track, ...segs.map((sg) => h('i', { class: 'seg ' + sg.kind, style: { width: (sg.len / totalSpan) * 100 + '%' }, title: `${sg.kind === 'study' ? 'Study' : 'Break'} ${fmtHM(sg.len)}` })),
+      h('span', { class: 'mark', style: { left: clamp(markLeft, 0, 100) + '%' } }));
+    legend.textContent = target > 0
+      ? `Target ${fmtHM(target)} · ${fmtHM(study)} study / ${fmtHM(brk)} break · ${fmtHM(Math.max(0, totalStudy - done))} to go`
+      : `${fmtHM(study)} study / ${fmtHM(brk)} break — two rounds shown (no target set)`;
+  },
   toggleNote() { if (!runningSession()) return; this.noteBox.hidden = !this.noteBox.hidden; if (!this.noteBox.hidden) this.noteTa.focus(); },
   addNote() { if (Timer.addQuickNote(this.noteTa.value)) { this.noteTa.value = ''; toast('Note added to the block'); } this.noteBox.hidden = true; },
   pickMission() {
@@ -66,7 +99,12 @@ const Focus = {
     sel.addEventListener('keydown', (e) => e.stopPropagation()); sel.addEventListener('blur', () => this.renderControls());
     mb.replaceChildren(sel); sel.focus();
   },
-  async stop() { if (!runningSession()) return; if (await confirmDialog('Stop the block?', { okLabel: 'Stop' })) { const s = Timer.stop(); this.close(); if (s) Panel.closeSession(s.id); } },
+  /* Leaves focus mode first: the confirmation dialog is not visible over the fullscreen overlay. */
+  async stop() {
+    if (!runningSession()) return;
+    this.close();
+    if (await confirmDialog('Stop the block?', { okLabel: 'Stop' })) { const s = Timer.stop(); if (s) Panel.closeSession(s.id); }
+  },
   onKey(e) {
     if (!this.el) return; if (modalStack.length) return;
     const tag = document.activeElement?.tagName; if (tag === 'TEXTAREA' || tag === 'SELECT' || tag === 'INPUT') return;
@@ -84,7 +122,7 @@ const Focus = {
   palette() {
     const r = runningSession(); const th = themeById(r ? r.theme : state.settings.last_theme);
     const base = hexToHsl(th ? th.color : '#5c86f0'); const paused = Timer.status() === 'paused';
-    const sat = paused ? 12 : 38, light = paused ? 30 : 42;
+    const sat = paused ? 10 : 30, light = paused ? 26 : 36;
     return { h: base.h, s: sat, l: light, paused };
   },
   draw(ts) {
@@ -94,7 +132,7 @@ const Focus = {
     ctx.clearRect(0, 0, W, H);
     ctx.fillStyle = `hsl(${pal.h} ${Math.round(pal.s * 0.4)}% 7%)`; ctx.fillRect(0, 0, W, H);
     if (kind === 'aurora' || kind === 'nenhuma') {
-      const blobs = [[0.3, 0.35, 41, 67, 0], [0.7, 0.55, 53, 89, 25], [0.5, 0.8, 47, 71, -20]];
+      const blobs = [[0.3, 0.35, 74, 121, 0], [0.7, 0.55, 95, 160, 25], [0.5, 0.8, 85, 128, -20]];
       ctx.globalCompositeOperation = 'lighter';
       blobs.forEach(([bx, by, p1, p2, hueOff], i) => {
         const x = W * (bx + 0.16 * Math.sin((tt / p1) * 2 * Math.PI + i) + 0.07 * Math.cos((tt / p2) * 2 * Math.PI * 1.7 + i * 2));
@@ -102,7 +140,7 @@ const Focus = {
         const rad = Math.max(W, H) * (0.42 + 0.05 * Math.sin(tt / 23 + i));
         const g = ctx.createRadialGradient(x, y, 0, x, y, rad);
         const hue = (pal.h + hueOff + 360) % 360;
-        g.addColorStop(0, `hsla(${hue} ${pal.s}% ${pal.l}% / 0.55)`); g.addColorStop(0.45, `hsla(${hue} ${pal.s}% ${pal.l}% / 0.18)`); g.addColorStop(1, 'hsla(0 0% 0% / 0)');
+        g.addColorStop(0, `hsla(${hue} ${pal.s}% ${pal.l}% / 0.38)`); g.addColorStop(0.45, `hsla(${hue} ${pal.s}% ${pal.l}% / 0.12)`); g.addColorStop(1, 'hsla(0 0% 0% / 0)');
         ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
       });
       ctx.globalCompositeOperation = 'source-over';

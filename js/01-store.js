@@ -12,7 +12,7 @@ const DEFAULT_THEMES = [
 ];
 const DEFAULT_SETTINGS = {
   name: '', themes: DEFAULT_THEMES.map((x) => ({ ...x })), last_theme: 'calculo',
-  break_every_min: 25, pause_autostop_min: 60, streak_min_min: 25, default_len_min: 60, snap_min: 15, target_min: null,
+  break_every_min: 25, break_len_min: 15, pause_autostop_min: 60, streak_min_min: 25, default_len_min: 60, snap_min: 15, target_min: null,
   focus_anim: 'aurora', sound: true, updated_at: null,
 };
 let state = { v: 2, settings: JSON.parse(JSON.stringify(DEFAULT_SETTINGS)), sessions: [], missions: [] };
@@ -177,7 +177,9 @@ function deleteMission(id) { const m = missionById(id); if (!m) return; m.delete
 function restoreMission(id) { const m = missionById(id); if (!m) return; m.deleted_at = null; m.updated_at = iso(Date.now()); dirty('mission', id); commit('missions', { id }); }
 function missionStats(m) {
   const from = m.start_date || dayKeyOf(ms(m.created_at));
-  const done = sumRange(from, null, (s) => s.theme === m.theme).netMin; // minutes since start (includes running)
+  const tkNow = todayKey();
+  const to = m.deadline && m.deadline < tkNow ? m.deadline : null; // after the deadline nothing else counts towards the goal
+  const done = sumRange(from, to, (s) => s.theme === m.theme).netMin;
   const goalMin = (m.goal_hours || 0) * 60;
   const tk = todayKey();
   const daysLeft = m.deadline ? daysBetween(tk, m.deadline) : null;

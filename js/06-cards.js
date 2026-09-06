@@ -25,7 +25,7 @@ const TimerCard = {
       r && s.target_min ? h('button', { class: 'btn sm ghost', title: 'Remove the target', onClick: () => updateSettings({ target_min: null }) }, '✕') : null);
     const quick = r ? h('div', { class: 'quick-note' }, h('textarea', { rows: 2, placeholder: 'Quick note (Ctrl+Enter adds it to the block)', onKeydown: (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); this.addNote(e.target); } } }), h('button', { class: 'btn sm', onClick: (e) => this.addNote(e.currentTarget.previousElementSibling) }, 'Add')) : null;
     setKids(this.el,
-      h('div', { class: 'card-head' }, h('h2', null, 'Study timer'), r ? h('button', { class: 'btn sm ghost', onClick: () => Panel.editSession(r.id) }, '✎ Block details') : null),
+      h('div', { class: 'card-head' }, h('h2', null, 'Study timer'), r ? h('button', { class: 'btn sm ghost', onClick: () => Panel.editSession(r.id) }, '✎ Block details') : h('button', { class: 'btn primary sm', id: 'btn-study-now', onClick: () => StudyNow.open() }, '+ Study now')),
       chips,
       h('div', { class: 'clock ' + st + (onBreak ? ' onbreak' : '') }, h('div', { class: 'clock-frozen num', id: 'clk-frozen' }), h('div', { class: 'clock-main num', id: 'clk-main', role: 'timer' }, '00:00'), h('div', { class: 'clock-sub', id: 'clk-sub' }, 'Pick a theme and start.')),
       h('div', { class: 'actions' }, focusBtn, startBtn, pauseBtn, plusBtn, stopBtn),
@@ -63,25 +63,54 @@ const TimerCard = {
 
 /* ---------- Today (full width, on top) ---------- */
 const TodayCard = {
-  el: null,
-  mount(root) { this.el = h('section', { class: 'card today-card', id: 'card-today' }); root.append(this.el); this.render(); on('change', () => this.render()); on('tick', () => this.updateNow()); },
+  el: null, mobile: null,
+  mount(root) {
+    this.el = h('section', { class: 'card today-card', id: 'card-today' }); root.append(this.el); this.render();
+    on('change', () => this.render()); on('tick', () => this.updateNow());
+    window.addEventListener('resize', () => { const m = window.innerWidth <= 760; if (m !== this.mobile) this.render(); });
+  },
   render() {
     const tk = todayKey(); const info = netByDay(tk, tk).get(tk); const total = info?.net || 0; const count = info?.count || 0;
+    this.mobile = window.innerWidth <= 760;
+    const head = h('div', { class: 'card-head' },
+      h('div', { class: 'row' }, h('h2', null, this.mobile ? this.greeting() : 'Today'), h('span', { class: 'muted small' }, fmtDayLong(tk))),
+      h('div', { class: 'row' }, h('span', { class: 'today-total num' }, fmtHM(total / MIN)), h('span', { class: 'muted small' }, count ? `${count} block${count > 1 ? 's' : ''}` : 'no blocks yet'),
+        ...(this.mobile ? [] : [...DURATION_PRESETS.map(([mins, label]) => h('button', { class: 'btn sm', title: `Add a ${label} block`, onClick: () => this.add(mins) }, '+ ' + label)),
+          h('button', { class: 'btn sm', title: 'Mark a tournament day', onClick: () => Tournament.open(todayKey()) }, '🏁 Tournament')])));
+    if (this.mobile) { setKids(this.el, head, h('button', { class: 'btn primary lg full', onClick: () => StudyNow.open() }, '▶ STUDY NOW'), this.agenda(tk), this.weekLine()); return; }
     const grid = Calendar.buildGrid([tk], true, { big: true });
-    setKids(this.el,
-      h('div', { class: 'card-head' },
-        h('div', { class: 'row' }, h('h2', null, 'Today'), h('span', { class: 'muted small' }, fmtDayLong(tk))),
-        h('div', { class: 'row' }, h('span', { class: 'today-total num' }, fmtHM(total / MIN)), h('span', { class: 'muted small' }, count ? `${count} block${count > 1 ? 's' : ''}` : 'no blocks yet'),
-          ...DURATION_PRESETS.map(([mins, label]) => h('button', { class: 'btn sm', title: `Add a ${label} block`, onClick: () => this.add(mins) }, '+ ' + label)))),
-      h('div', { class: 'tl-wrap' }, grid));
+    setKids(this.el, head, h('div', { class: 'tl-wrap' }, grid));
     Calendar.attachPointer(grid);
     this.updateNow();
+  },
+  greeting() { const hr = new Date(nowMs()).getHours(); return hr < 12 ? 'Good morning' : hr < 18 ? 'Good afternoon' : 'Good evening'; },
+  /* Mobile: a vertical agenda reads better than a 24 h timeline. */
+  agenda(tk) {
+    const list = state.sessions.filter((s) => isLive(s) && sliceSession(s).some((sl) => sl.day === tk)).sort((a, b) => a.started_at.localeCompare(b.started_at));
+    const now = nowMs();
+    return h('div', { class: 'agenda' },
+      ...list.map((s) => { const tm = sessionTimes(s); const t = isTournament(s);
+        return h('button', { class: 'ag-row' + (t ? ' tourn' : '') + (!s.ended_at ? ' live' : '') + (tm.start > now ? ' next' : ''), style: { '--c': t ? '#b98cf0' : themeColor(s.theme) },
+          onClick: () => (t ? Tournament.edit(s.id) : Panel.editSession(s.id)) },
+          h('span', { class: 'ag-time num' }, hm(tm.start)),
+          h('span', { class: 'ag-bar' }),
+          h('span', { class: 'grow' }, h('b', null, t ? `🏁 ${s.meta?.tournament_name || 'Tournament day'}` : themeName(s.theme)), s.note_md ? noteIcon() : null,
+            h('div', { class: 'muted small' }, s.ended_at ? `${fmtRange(tm.start, tm.end)} · ${fmtHM(tm.net / MIN)}` : `since ${hm(tm.start)} · running`)));
+      }),
+      !list.length ? h('p', { class: 'muted italic small' }, 'Nothing scheduled today — hit Study now, or add a block below.') : null,
+      h('div', { class: 'row preset-row' }, ...DURATION_PRESETS.map(([mins, label]) => h('button', { class: 'btn sm', onClick: () => this.add(mins) }, '+ ' + label)),
+        h('button', { class: 'btn sm', onClick: () => Tournament.open(todayKey()) }, '🏁')));
+  },
+  weekLine() {
+    const w = weekStats(weekStartKey()); const goal = (state.settings.weekly_goal_hours || 0) * 60;
+    return h('a', { class: 'week-line', href: '#/week' }, h('span', null, 'This week'), h('b', { class: 'num' }, goal ? `${fmtHM(w.netMin)} / ${fmtHM(goal)}` : fmtHM(w.netMin)),
+      goal ? h('div', { class: 'progress' }, h('i', { style: { width: Math.min(100, (w.netMin / goal) * 100) + '%' } })) : null);
   },
   add(mins) {
     const now = new Date(nowMs()); const start = dayMs(todayKey(), Math.floor((now.getHours() * 60 + now.getMinutes()) / 15) * 15);
     Calendar.createAt(start, mins);
   },
-  updateNow() { Calendar.paintNow(this.el); },
+  updateNow() { if (!this.mobile) Calendar.paintNow(this.el); },
 };
 
 /* ---------- Missions ---------- */
@@ -202,7 +231,15 @@ const Calendar = {
   },
   segments(st, en) { const out = []; let cur = st, guard = 0; while (cur < en && guard++ < 40) { const day = dayKeyOf(cur); const dayEnd = dayMs(addDays(day, 1), 0); const segEnd = Math.min(en, dayEnd); const a = (cur - dayMs(day, 0)) / DAY, b = (segEnd - dayMs(day, 0)) / DAY; out.push({ day, left: a * 100, width: Math.max(0.35, (b - a) * 100), start: cur, end: segEnd }); cur = segEnd; } return out; },
   blockEl(s, sg, interactive = true) {
-    const tm = sessionTimes(s); const live = !s.ended_at; const color = themeColor(s.theme);
+    const tm = sessionTimes(s); const live = !s.ended_at; const color = isTournament(s) ? '#b98cf0' : themeColor(s.theme);
+    if (isTournament(s)) {
+      const name = s.meta?.tournament_name || 'Tournament day';
+      const t = `🏁 ${name} · ${fmtRange(tm.start, tm.end)} (planning locked)`;
+      return h('div', { class: 'blk tourn', role: 'gridcell', tabindex: interactive ? '0' : null, title: t, 'aria-label': t, dataset: { id: s.id, day: sg.day },
+        style: { left: sg.left + '%', width: sg.width + '%', '--c': color, color: contrastInk(color) },
+        onKeydown: interactive ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); Tournament.edit(s.id); } } : null },
+        h('span', { class: 't' }, '🏁 ', name), h('span', { class: 'when' }, fmtRange(tm.start, tm.end)), h('span', { class: 'lock' }, '🔒'));
+    }
     const title = `${themeName(s.theme)} · ${live ? `${hm(tm.start)} – running` : fmtRange(tm.start, tm.end)} · ${fmtHM(tm.net / MIN)}${s.note_md ? '\n' + mdExcerpt(s.note_md, 140) : ''}`;
     return h('div', { class: 'blk' + (live ? ' live' : '') + (tm.start > nowMs() ? ' planned' : '') + (interactive && s.id === this.selectedId ? ' selected' : ''), role: 'gridcell', tabindex: interactive ? '0' : null, title, 'aria-label': title.replace('\n', '. '), dataset: { id: s.id, day: sg.day }, style: { left: sg.left + '%', width: sg.width + '%', '--c': color, color: contrastInk(color) }, onKeydown: interactive ? (e) => this.onKey(e, s) : null },
       h('span', { class: 't' }, themeName(s.theme)),
@@ -229,12 +266,25 @@ const Calendar = {
     const errs = validateSession({ ...s, ...patch }, s.id); if (errs.length) { toast(errs[0].message, { error: true }); return; }
     this.focusId = s.id; updateSession(s.id, patch); toastUndo('Block adjusted');
   },
+  planningGuard(startMs, endMs, onConfirm) {
+    const t = tournamentAt(startMs, endMs);
+    if (!t) { onConfirm(); return; }
+    confirmDialog(`${t.meta?.tournament_name || 'Tournament day'} is blocked for planning (${fmtRange(ms(t.started_at), ms(t.ended_at))}). Study sessions started with “Study now” are always allowed.`,
+      { title: 'Tournament day', okLabel: 'Schedule anyway' }).then((ok) => { if (ok) onConfirm(); });
+  },
   createAt(startMs, lenMin) {
+    if (tournamentAt(startMs, startMs + lenMin * MIN)) { this.planningGuard(startMs, startMs + lenMin * MIN, () => this.forceCreate(startMs, lenMin)); return null; }
     if (nightBlocks(startMs, startMs + lenMin * MIN)) { toast('Those are your sleep hours — unfreeze them in Settings if you want to study then', { error: true }); return null; }
     const fit = this.fitMove(startMs, startMs + lenMin * MIN); if (!fit.ok) { toast('Does not fit: another block is in the way', { error: true }); return null; }
     const data = { theme: state.settings.last_theme || themes()[0]?.id, started_at: iso(fit.start), ended_at: iso(fit.end), source: 'manual' };
     const errs = validateSession(data); if (errs.length) { toast(errs[0].message, { error: true }); return null; }
     const s = createSession(data); this.focusId = s.id; this.selectedId = s.id; Panel.editSession(s.id); toastUndo('Block created'); return s;
+  },
+  forceCreate(startMs, lenMin) {
+    const fit = this.fitMove(startMs, startMs + lenMin * MIN); if (!fit.ok) { toast('Does not fit: another block is in the way', { error: true }); return null; }
+    const data = { theme: state.settings.last_theme || themes()[0]?.id, started_at: iso(fit.start), ended_at: iso(fit.end), source: 'manual' };
+    const errs = validateSession(data); if (errs.length) { toast(errs[0].message, { error: true }); return null; }
+    const s = createSession(data); this.focusId = s.id; Panel.editSession(s.id); toastUndo('Block created'); return s;
   },
   fitMove(start, end, excludeId) {
     const c = findOverlap(start, end, excludeId); if (!c) return { start, end, ok: true };
@@ -282,7 +332,7 @@ const Calendar = {
       if (!commitIt || !d.moved || !res) return;
       const reject = () => { blocks.forEach((b) => { b.classList.add('reject'); setTimeout(() => b.classList.remove('reject'), 300); }); toast('Does not fit: it runs into another block', { error: true }); };
       if (!res.ok) { reject(); return; }
-      if (d.kind === 'create') { if (nightBlocks(res.start, res.end)) { toast('Those are your sleep hours — unfreeze them in Settings if you want to study then', { error: true }); return; } const data = { theme: state.settings.last_theme || themes()[0]?.id, started_at: iso(res.start), ended_at: iso(res.end), source: 'manual' }; const errs = validateSession(data); if (errs.length) { toast(errs[0].message, { error: true }); return; } const s = createSession(data); this.selectedId = s.id; this.focusId = s.id; toastUndo('Block created'); setTimeout(() => Panel.editSession(s.id), 30); return; }
+      if (d.kind === 'create') { if (tournamentAt(res.start, res.end)) { this.planningGuard(res.start, res.end, () => this.forceCreate(res.start, (res.end - res.start) / MIN)); return; } if (nightBlocks(res.start, res.end)) { toast('Those are your sleep hours — unfreeze them in Settings if you want to study then', { error: true }); return; } const data = { theme: state.settings.last_theme || themes()[0]?.id, started_at: iso(res.start), ended_at: iso(res.end), source: 'manual' }; const errs = validateSession(data); if (errs.length) { toast(errs[0].message, { error: true }); return; } const s = createSession(data); this.selectedId = s.id; this.focusId = s.id; toastUndo('Block created'); setTimeout(() => Panel.editSession(s.id), 30); return; }
       if (d.kind === 'dup') { const src = d.session; const shift = res.start - d.orig.start; const pauses = (src.pauses || []).map((p) => ({ start: iso(ms(p.start) + shift), end: p.end ? iso(ms(p.end) + shift) : null })); const data = { theme: src.theme, started_at: iso(res.start), ended_at: iso(res.end), pauses, source: 'manual', note_md: src.note_md }; const errs = validateSession(data); if (errs.length) { toast(errs[0].message, { error: true }); return; } const s = createSession(data); this.focusId = s.id; toastUndo('Block duplicated'); return; }
       const s = d.session; const shift = res.start - d.orig.start; const patch = { started_at: iso(res.start) };
       if (s.ended_at) patch.ended_at = iso(res.end);
@@ -319,7 +369,7 @@ const Calendar = {
       if (!drag || e.pointerId !== drag.pointerId) return; const d = drag;
       if (!d.moved) {
         finish(false);
-        if (d.session) Panel.editSession(d.session.id);
+        if (d.session) { if (isTournament(d.session)) Tournament.edit(d.session.id); else Panel.editSession(d.session.id); }
         else if (d.kind === 'create') this.createAt(dayMs(d.day, d.anchorMin), state.settings.default_len_min);
         return;
       }
@@ -342,7 +392,7 @@ const ReportsCard = {
     const top = byTheme.slice().sort((a, b) => b.min - a.min)[0];
     const seg = segmented([['week', 'Week'], ['month', 'Month'], ['all', 'Total']], this.period, (v) => { this.period = v; this.render(); }, 'sm');
     setKids(this.el,
-      h('div', { class: 'card-head' }, h('h2', null, 'Reports'), h('div', { class: 'row' }, seg, h('a', { class: 'btn sm', href: '#/report' }, '📄 Full report'))),
+      h('div', { class: 'card-head' }, h('h2', null, 'Reports'), h('div', { class: 'row' }, seg, h('a', { class: 'btn sm', href: '#/week' }, '📈 Weekly review'), h('a', { class: 'btn sm', href: '#/report' }, '📄 Full report'))),
       h('div', { class: 'stats' },
         h('div', null, h('b', null, fmtHM(r.netMin)), h('span', null, 'Time')),
         h('div', null, h('b', null, `${sk.current} ${sk.current === 1 ? 'day' : 'days'}`), h('span', null, 'Streak')),

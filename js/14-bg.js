@@ -2,15 +2,23 @@
    Drop more images in that folder named 1.jpg, 2.jpg, 3.webp … (jpg/jpeg/png/webp).
    A day-seeded draw keeps the same picture all day; Settings has a button to step to the next one. */
 const Background = {
-  MAX: 40, EXT: ['webp', 'jpg', 'jpeg', 'png'],
+  MAX: 24, EXT: ['webp', 'jpg', 'jpeg', 'png'],
   current: null, list: null, scanning: false,
   overrideKey() { return 'csp:v2:bg:' + (Auth.user?.id || 'x'); },
   apply() {
     this.strength();
     let saved = null;
     try { const raw = localStorage.getItem(this.overrideKey()); if (raw) { const o = JSON.parse(raw); if (o.day === todayKey()) saved = o.url; } } catch { /* */ }
-    if (saved) { this.probe(saved, (ok) => ok ? this.set(saved) : this.tryNext(this.orderForToday(), 0)); return; }
-    this.tryNext(this.orderForToday(), 0);
+    if (saved) { this.probe(saved, (ok) => { if (ok) this.set(saved); else this.pickOfDay(); }); return; }
+    this.pickOfDay();
+  },
+  pickOfDay() {
+    this.scan((list) => {
+      if (!list.length) return;
+      const key = todayKey(); let hnum = 2166136261;
+      for (let i = 0; i < key.length; i++) { hnum ^= key.charCodeAt(i); hnum = Math.imul(hnum, 16777619); }
+      this.set(list[Math.abs(hnum) % list.length]);
+    });
   },
   /* How much the picture shows through: 'soft' | 'medium' | 'strong' */
   strength() {
@@ -19,38 +27,31 @@ const Background = {
     if (v === 'soft') document.body.classList.add('bg-soft');
     if (v === 'strong') document.body.classList.add('bg-strong');
   },
-  orderForToday() {
-    const key = todayKey(); let hnum = 2166136261;
-    for (let i = 0; i < key.length; i++) { hnum ^= key.charCodeAt(i); hnum = Math.imul(hnum, 16777619); }
-    const rnd = mulberry(Math.abs(hnum));
-    const nums = Array.from({ length: this.MAX }, (_, i) => i + 1);
-    for (let i = nums.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [nums[i], nums[j]] = [nums[j], nums[i]]; }
-    return nums;
-  },
-  tryNext(order, idx) {
-    if (idx >= order.length) return; // nothing found: the plain dark background stays
-    this.tryExts(order[idx], 0, (url) => { if (url) this.set(url); else this.tryNext(order, idx + 1); });
-  },
   tryExts(n, e, cb) {
     if (e >= this.EXT.length) { cb(null); return; }
     const url = `assets/bg/${n}.${this.EXT[e]}`;
     this.probe(url, (ok) => ok ? cb(url) : this.tryExts(n, e + 1, cb));
   },
   probe(url, cb) { const img = new Image(); img.onload = () => cb(true); img.onerror = () => cb(false); img.src = url; },
-  /* Find every picture in the folder (once), then step to the one after the current. */
+  /* Find the pictures in the folder once a day (stops after a few missing numbers) and cache the list. */
   scan(cb) {
     if (this.list) { cb(this.list); return; }
-    if (this.scanning) return;
-    this.scanning = true;
-    const found = []; let pending = 0, n = 1;
+    try { const raw = localStorage.getItem('csp:v2:bglist'); if (raw) { const o = JSON.parse(raw); if (o.day === todayKey() && Array.isArray(o.list)) { this.list = o.list; cb(this.list); return; } } } catch { /* */ }
+    const found = []; let gaps = 0, n = 1;
     const step = () => {
-      if (n > this.MAX) { if (!pending) { this.list = found.sort((a, b) => a.n - b.n).map((x) => x.url); this.scanning = false; cb(this.list); } return; }
-      const num = n++; pending++;
-      this.tryExts(num, 0, (url) => { if (url) found.push({ n: num, url }); pending--; step(); });
+      if (n > this.MAX || gaps >= 3) {
+        this.list = found;
+        try { localStorage.setItem('csp:v2:bglist', JSON.stringify({ day: todayKey(), list: found })); } catch { /* */ }
+        cb(this.list); return;
+      }
+      const num = n++;
+      this.tryExts(num, 0, (url) => { if (url) { found.push(url); gaps = 0; } else gaps++; step(); });
     };
     step();
   },
   next() {
+    try { localStorage.removeItem('csp:v2:bglist'); } catch { /* */ }
+    this.list = null;
     this.scan((list) => {
       if (!list.length) { toast('No pictures found in assets/bg/', { error: true }); return; }
       const i = list.indexOf(this.current);
@@ -62,7 +63,7 @@ const Background = {
   },
   useDaily() {
     try { localStorage.removeItem(this.overrideKey()); } catch { /* */ }
-    this.tryNext(this.orderForToday(), 0); toast("Back to the day's picture");
+    this.pickOfDay(); toast("Back to the day's picture");
   },
   set(url) {
     this.current = url;

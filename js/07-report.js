@@ -1,6 +1,6 @@
 /* ===== Study report page (#/report) ===== */
 const ReportView = {
-  months: 12, days: 30, el: null, offs: [],
+  months: 12, days: 30, rhythmPeriod: 28, rhythmMetric: 'focus', el: null, offs: [],
   mount(root) { this.el = h('div', { class: 'report' }); root.append(this.el); this.render(); this.offs.push(on('change', () => this.render())); },
   unmount() { this.offs.forEach((f) => f()); this.offs = []; },
   render() {
@@ -29,25 +29,44 @@ const ReportView = {
       h('section', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', null, 'Study calendar'), segmented([[30, '30 days'], [60, '60 days'], [90, '90 days']], this.days, (v) => { this.days = v; this.render(); }, 'sm')),
         h('p', { class: 'sub' }, 'Rows = days, columns = hours.'), h('div', { class: 'tl-wrap' }, Calendar.buildGrid(days, false)),
         h('div', { class: 'legend' }, ...themes().map((th) => h('span', null, h('i', { style: { background: th.color } }), th.name)))),
-      h('section', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', null, 'Achievements')),
-        (() => { const list = achievements(); const got = list.filter((a) => a.done).length;
-          return frag(h('p', { class: 'sub' }, `${got} of ${list.length} unlocked`),
-            h('div', { class: 'ach-grid' }, ...list.map((a) => h('div', { class: 'ach' + (a.done ? ' done' : ''), title: a.desc },
-              h('span', { class: 'ach-ic' }, a.icon),
-              h('div', { class: 'grow' }, h('b', null, a.name), h('div', { class: 'muted small' }, a.desc),
-                a.done ? null : h('div', { class: 'progress sm' }, h('i', { style: { width: Math.round(a.pct * 100) + '%' } })))))));
-        })()),
-      (() => { const rs = ratingStats(days[0], null); if (!rs.total) return null;
-        const best = Array.from(rs.byHour.entries()).filter(([, v]) => v.n >= 2).sort((a, b) => b[1].sum / b[1].n - a[1].sum / a[1].n)[0];
-        return h('section', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', null, 'Focus quality')),
-          h('p', { class: 'sub' }, `${rs.total} rated blocks in the last ${this.days} days${best ? ` · sharpest around ${pad2(best[0])}:00` : ''}`),
-          h('div', { class: 'bars' }, ...RATINGS.map(([id, label, color]) => {
-            const n = rs.counts[id]; const pct = rs.total ? (n / rs.total) * 100 : 0;
-            return h('div', { class: 'bar-row' }, h('span', { class: 'lbl' }, label), h('div', { class: 'bar' }, h('i', { class: 'fill', style: { width: pct + '%', background: color } })), h('span', { class: 'val num' }, n ? `${n} · ${Math.round(pct)}%` : ''));
-          })),
-          h('div', { class: 'stack sm', style: { marginTop: '10px' } }, ...Array.from(rs.byTheme.entries()).sort((a, b) => b[1].sum / b[1].n - a[1].sum / a[1].n).map(([th, v]) =>
-            h('div', { class: 'row between small' }, h('span', { class: 'row' }, themeDot(th === '__none' ? null : th), themeName(th === '__none' ? null : th)), h('span', { class: 'muted' }, `${Math.round((v.sum / v.n) * 100)}% focus · ${v.n} blocks`)))));
+      (() => {
+        const fromKey = this.rhythmPeriod ? addDays(todayKey(), -this.rhythmPeriod) : null;
+        const buckets = rhythmBuckets(fromKey).filter((b) => b.sessions > 0);
+        const totalSessions = buckets.reduce((a, b) => a + b.sessions, 0);
+        const distinctDays = buckets.reduce((a, b) => a + b.days, 0);
+        const metric = this.rhythmMetric;
+        const valueOf = (b) => metric === 'focus' ? (b.focus == null ? 0 : b.focus) : metric === 'time' ? b.minutes : b.sessions;
+        const max = Math.max(0.0001, ...buckets.map(valueOf));
+        // Only say something about "when you study best" with enough sessions spread over enough days.
+        const reliable = totalSessions >= 8 && distinctDays >= 4;
+        const rated = buckets.filter((b) => b.focus != null && b.sessions >= 2);
+        const bestFocus = rated.slice().sort((a, b) => b.focus - a.focus)[0];
+        const bestTime = buckets.slice().sort((a, b) => b.minutes - a.minutes)[0];
+        return h('section', { class: 'card' },
+          h('div', { class: 'card-head' }, h('div', null, h('h2', null, 'Your rhythm'), h('p', { class: 'sub' }, 'When do you tend to study best? The app observes; it does not prescribe.')),
+            h('div', { class: 'row' },
+              segmented([[28, '4 weeks'], [90, '3 months'], [0, 'All time']], this.rhythmPeriod, (v) => { this.rhythmPeriod = v; this.render(); }, 'sm'),
+              segmented([['focus', 'Focus'], ['time', 'Time'], ['sessions', 'Sessions']], metric, (v) => { this.rhythmMetric = v; this.render(); }, 'sm'))),
+          buckets.length ? frag(
+            h('div', { class: 'rhythm' }, ...buckets.map((b) => {
+              const v = valueOf(b); const stars = Math.max(1, Math.round((v / max) * 5));
+              const label = metric === 'focus' ? (b.focus == null ? 'not rated' : `${Math.round(b.focus * 100)}%`) : metric === 'time' ? fmtHM(b.minutes) : `${b.sessions}`;
+              return h('div', { class: 'rh-row' }, h('span', { class: 'rh-lbl num' }, b.label),
+                h('span', { class: 'rh-stars', title: `${b.sessions} sessions · ${fmtHM(b.minutes)}` }, metric === 'focus' && b.focus == null ? '—' : '★'.repeat(stars) + '☆'.repeat(5 - stars)),
+                h('span', { class: 'rh-val muted small' }, label));
+            })),
+            h('p', { class: 'muted small', style: { marginTop: '8px' } }, reliable
+              ? (metric === 'focus' && bestFocus ? `In your recent sessions, ${bestFocus.label} shows up as your most consistent window.`
+                : bestTime ? `You study most around ${bestTime.label}.` : '')
+              : 'Not enough sessions yet to draw conclusions — keep logging and this fills in.'),
+            reliable && bestFocus && bestTime && bestFocus.label !== bestTime.label
+              ? h('p', { class: 'muted small' }, `You study more around ${bestTime.label}, but your focus is better around ${bestFocus.label}.`) : null)
+            : h('p', { class: 'muted italic small' }, 'No sessions in this period.'));
       })(),
+      h('section', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', null, '🏆 Achievements'), h('a', { class: 'btn sm', href: '#/achievements' }, 'Open')),
+        (() => { const list = Achievements.list(); const got = list.filter((a) => a.done); return frag(
+          h('p', { class: 'sub' }, `${got.length} of ${list.length} unlocked · ${(state.settings.books || []).length} books finished`),
+          h('div', { class: 'ach-strip' }, ...got.slice(-10).map((a) => h('span', { class: 'ach-chip', title: `${a.name} — ${a.desc}` }, a.icon)))); })()),
       h('section', { class: 'card notes-section' }, h('div', { class: 'card-head' }, h('h2', null, 'Notes in the period')),
         notes.length ? h('div', { class: 'stack' }, ...notes.map((s) => { const tm = sessionTimes(s); return h('div', { class: 'note-item', style: { '--c': themeColor(s.theme) } }, h('div', { class: 'small muted' }, `${fmtDayShort(dayKeyOf(tm.start))} · ${fmtRange(tm.start, tm.end)} · ${themeName(s.theme)} · ${fmtHM(tm.net / MIN)}`), h('div', { class: 'md', html: renderMd(s.note_md) })); }))
           : h('p', { class: 'muted italic' }, `No notes in the last ${this.days} days.`)));

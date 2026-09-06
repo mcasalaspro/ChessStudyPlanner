@@ -13,7 +13,7 @@ const DEFAULT_THEMES = [
 const DEFAULT_SETTINGS = {
   name: '', themes: DEFAULT_THEMES.map((x) => ({ ...x })), last_theme: 'calculo',
   break_every_min: 25, break_len_min: 15, pause_autostop_min: 60, streak_min_min: 25, default_len_min: 60, snap_min: 15, target_min: null,
-  focus_anim: 'aurora', sound: true, bg_strength: 'strong', night_freeze: false, night_from: '23:00', night_to: '07:00', guided_breaks: true, updated_at: null,
+  focus_anim: 'aurora', sound: true, bg_strength: 'strong', night_freeze: false, night_from: '23:00', night_to: '07:00', guided_breaks: true, weekly_goal_hours: 0, books: [], achievements: {}, ach_feedback: true, updated_at: null,
 };
 let state = { v: 2, settings: JSON.parse(JSON.stringify(DEFAULT_SETTINGS)), sessions: [], missions: [] };
 let storageKey = 'csp:v2:local';
@@ -74,8 +74,18 @@ function undoLast() {
 /* ===== Sessions ===== */
 const snapshot = (o) => JSON.parse(JSON.stringify(o));
 const isLive = (s) => !s.deleted_at;
-const activeSessions = () => state.sessions.filter((s) => isLive(s) && s.ended_at);
-const runningSession = () => state.sessions.find((s) => isLive(s) && !s.ended_at) || null;
+const isTournament = (s) => s.meta?.type === 'tournament';
+const activeSessions = () => state.sessions.filter((s) => isLive(s) && s.ended_at && !isTournament(s));
+const tournamentDays = () => state.sessions.filter((s) => isLive(s) && isTournament(s));
+/* Any tournament block overlapping the range (planning is blocked there, real study is not) */
+function tournamentAt(startMs, endMs) { return tournamentDays().find((t) => ms(t.started_at) < endMs && ms(t.ended_at) > startMs) || null; }
+function createTournament({ start, end, name }) {
+  const s = newSessionObj({ theme: null, started_at: iso(start), ended_at: iso(end), source: 'manual', meta: { type: 'tournament', tournament_name: name || '', locked: true } });
+  state.sessions.push(s); dirty('session', s.id); commit('sessions', { id: s.id });
+  Achievements.check('TOURNAMENT_DAY_CREATED');
+  return s;
+}
+const runningSession = () => state.sessions.find((s) => isLive(s) && !s.ended_at && !isTournament(s)) || null;
 const sessionById = (id) => state.sessions.find((s) => s.id === id) || null;
 
 function normPauses(s, end) { return (s.pauses || []).map((p) => ({ s: ms(p.start), e: p.end ? ms(p.end) : end })).filter((p) => p.e > p.s); }
@@ -106,7 +116,7 @@ function sliceSession(s, now = nowMs()) {
 function findOverlap(startMs, endMs, excludeId) {
   const now = nowMs();
   for (const s of state.sessions) {
-    if (!isLive(s) || s.id === excludeId) continue;
+    if (!isLive(s) || isTournament(s) || s.id === excludeId) continue;
     const st = ms(s.started_at), en = s.ended_at ? ms(s.ended_at) : now;
     if (st < endMs && en > startMs) return s;
   }
@@ -188,36 +198,122 @@ function missionStats(m) {
   return { done, goalMin, progress: goalMin ? clamp(done / goalMin, 0, 1) : 0, daysLeft, remaining, perDay, complete: done >= goalMin && goalMin > 0, overdue: daysLeft != null && daysLeft < 0 && done < goalMin };
 }
 
+/* ===== Weeks (ISO: Monday → Sunday) ===== */
+function weekStartKey(key = todayKey()) { const d = parseYmd(key); const wd = (d.getDay() + 6) % 7; return addDays(key, -wd); }
+function weekLabel(startKey) { const a = parseYmd(startKey), b = parseYmd(addDays(startKey, 6)); return `${MON[a.getMonth()]} ${a.getDate()} – ${MON[b.getMonth()]} ${b.getDate()}`; }
+function weekStats(startKey) {
+  const endKey = addDays(startKey, 6);
+  const r = sumRange(startKey, endKey); const byDay = netByDay(startKey, endKey);
+  const days = Array.from({ length: 7 }, (_, i) => addDays(startKey, i));
+  const perDay = days.map((k) => ({ day: k, min: (byDay.get(k)?.net || 0) / MIN }));
+  const studied = perDay.filter((d) => d.min > 0).length;
+  let longest = 0;
+  for (const s of activeSessions()) { const k = dayKeyOf(ms(s.started_at)); if (k < startKey || k > endKey) continue; longest = Math.max(longest, sessionTimes(s).net / MIN); }
+  const tourn = new Set(tournamentDays().filter((t) => { const k = dayKeyOf(ms(t.started_at)); return k >= startKey && k <= endKey; }).map((t) => dayKeyOf(ms(t.started_at)))).size;
+  const ratings = ratingStats(startKey, endKey);
+  return { startKey, endKey, netMin: r.netMin, count: r.count, byTheme: r.byTheme, perDay, studied, longest, tournaments: tourn, ratings, avgPerStudiedDay: studied ? r.netMin / studied : 0 };
+}
+/* Two-hour buckets: how the person actually performs through the day */
+const HOUR_BUCKETS = [[6, 8], [8, 10], [10, 12], [12, 14], [14, 16], [16, 18], [18, 20], [20, 22], [22, 24], [0, 6]];
+function rhythmBuckets(fromKey) {
+  const score = { focused: 1, normal: 0.6, scattered: 0.2 };
+  const out = HOUR_BUCKETS.map(([a, b]) => ({ a, b, label: a === 0 ? '00–06' : `${pad2(a)}–${pad2(b % 24)}`, sessions: 0, minutes: 0, ratedN: 0, ratedSum: 0, days: new Set() }));
+  for (const s of activeSessions()) {
+    const day = dayKeyOf(ms(s.started_at)); if (fromKey && day < fromKey) continue;
+    const hr = new Date(ms(s.started_at)).getHours();
+    const bk = out.find((x) => (x.a === 0 ? hr < 6 : hr >= x.a && hr < x.b)); if (!bk) continue;
+    bk.sessions++; bk.minutes += sessionTimes(s).net / MIN; bk.days.add(day);
+    const r = s.meta?.rating; if (r && r in score) { bk.ratedN++; bk.ratedSum += score[r]; }
+  }
+  return out.map((b) => ({ ...b, days: b.days.size, focus: b.ratedN ? b.ratedSum / b.ratedN : null }));
+}
+
 /* ===== Achievements ===== */
 const RATINGS = [['focused', 'Focused', '#8bc34a'], ['normal', 'Normal', '#e0a03a'], ['scattered', 'Scattered', '#e06060']];
-function achievements() {
-  const all = sumRange(null, null); const sk = streakInfo();
-  const sessions = activeSessions();
-  const early = sessions.filter((s) => new Date(ms(s.started_at)).getHours() < 8).length;
-  const byDay = netByDay(null, null);
-  const minMs = (state.settings.streak_min_min || 25) * MIN;
-  // a "full week": 7 days in a row above the daily minimum
-  let bestWeek = 0, run = 0, prev = null;
-  Array.from(byDay.keys()).sort().forEach((k) => { if (byDay.get(k).net < minMs) { run = 0; prev = k; return; } run = prev && addDays(prev, 1) === k ? run + 1 : 1; bestWeek = Math.max(bestWeek, run); prev = k; });
-  const missionsDone = state.missions.filter((m) => !m.deleted_at && (m.status === 'done' || missionStats(m).complete)).length;
-  const focused = sessions.filter((s) => s.meta?.rating === 'focused').length;
-  const def = [
-    { id: 'first', icon: '🚀', name: 'First block', desc: 'Log your first study block', have: sessions.length, goal: 1 },
-    { id: 'week', icon: '📅', name: 'Full week', desc: '7 days in a row above the daily minimum', have: bestWeek, goal: 7 },
-    { id: 'streak10', icon: '🔥', name: 'Ten in a row', desc: '10-day streak', have: Math.max(sk.best, sk.current), goal: 10 },
-    { id: 'streak30', icon: '⚡', name: 'A month of it', desc: '30-day streak', have: Math.max(sk.best, sk.current), goal: 30 },
-    { id: 'h10', icon: '⏱', name: '10 hours', desc: '10 hours of net study', have: all.netMin, goal: 600 },
-    { id: 'h100', icon: '💯', name: '100 hours', desc: '100 hours of net study', have: all.netMin, goal: 6000 },
-    { id: 'h500', icon: '👑', name: '500 hours', desc: '500 hours of net study', have: all.netMin, goal: 30000 },
-    { id: 'early', icon: '🌅', name: 'Early bird', desc: '5 sessions started before 8am', have: early, goal: 5 },
-    { id: 'blocks50', icon: '🧱', name: 'Fifty blocks', desc: 'Log 50 blocks', have: sessions.length, goal: 50 },
-    { id: 'mission', icon: '🏅', name: 'Mission accomplished', desc: 'Finish a mission', have: missionsDone, goal: 1 },
-    { id: 'themes', icon: '🎯', name: 'All-rounder', desc: 'Study 5 different themes', have: new Set(sessions.map((s) => s.theme).filter(Boolean)).size, goal: 5 },
-    { id: 'deep', icon: '🧠', name: 'Deep work', desc: '20 blocks rated as focused', have: focused, goal: 20 },
-  ];
-  return def.map((a) => ({ ...a, done: a.have >= a.goal, pct: clamp(a.have / a.goal, 0, 1) }));
-}
-/* Average focus rating, for the report */
+const RARITY = { 1: ['common', 'Common', '○'], 2: ['uncommon', 'Uncommon', '◇'], 3: ['rare', 'Rare', '✦'], 4: ['epic', 'Epic', '✦✦'], 5: ['legendary', 'Legendary', '♛'] };
+const ACH_CATEGORIES = [['consistency', 'Consistency', '🔥'], ['volume', 'Time', '⏱'], ['sessions', 'Sessions', '♟'], ['missions', 'Missions', '🎯'], ['books', 'Knowledge', '📚'], ['special', 'Milestones', '👑']];
+/* condition: (m) => number, against goal. `hidden` ones show as ??? until unlocked. */
+const ACHIEVEMENTS = [
+  { id: 'first_session', cat: 'consistency', tier: 1, icon: '🚀', name: 'First step', desc: 'Log your first study block', goal: 1, val: (m) => m.sessions },
+  { id: 'streak_3', cat: 'consistency', tier: 1, icon: '🔥', name: 'Three days', desc: '3-day streak', goal: 3, val: (m) => m.streak },
+  { id: 'streak_7', cat: 'consistency', tier: 2, icon: '🔥', name: 'One week', desc: '7-day streak', goal: 7, val: (m) => m.streak },
+  { id: 'streak_14', cat: 'consistency', tier: 3, icon: '🔥', name: 'Two weeks', desc: '14-day streak', goal: 14, val: (m) => m.streak },
+  { id: 'streak_30', cat: 'consistency', tier: 4, icon: '⚡', name: 'A month of it', desc: '30-day streak', goal: 30, val: (m) => m.streak },
+  { id: 'streak_100', cat: 'consistency', tier: 5, icon: '♛', name: 'One hundred days', desc: '100-day streak', goal: 100, val: (m) => m.streak },
+  { id: 'hours_5', cat: 'volume', tier: 1, icon: '⏱', name: '5 hours', desc: '5 hours of net study', goal: 300, val: (m) => m.minutes },
+  { id: 'hours_10', cat: 'volume', tier: 1, icon: '⏱', name: '10 hours', desc: '10 hours of net study', goal: 600, val: (m) => m.minutes },
+  { id: 'hours_25', cat: 'volume', tier: 2, icon: '⌛', name: '25 hours', desc: '25 hours of net study', goal: 1500, val: (m) => m.minutes },
+  { id: 'hours_50', cat: 'volume', tier: 2, icon: '⌛', name: '50 hours', desc: '50 hours of net study', goal: 3000, val: (m) => m.minutes },
+  { id: 'hours_100', cat: 'volume', tier: 3, icon: '💯', name: '100 hours', desc: '100 hours of net study', goal: 6000, val: (m) => m.minutes },
+  { id: 'hours_250', cat: 'volume', tier: 4, icon: '🏆', name: '250 hours', desc: '250 hours of net study', goal: 15000, val: (m) => m.minutes },
+  { id: 'hours_500', cat: 'volume', tier: 4, icon: '🏆', name: '500 hours', desc: '500 hours of net study', goal: 30000, val: (m) => m.minutes },
+  { id: 'hours_1000', cat: 'volume', tier: 5, icon: '♛', name: '1000 hours', desc: '1000 hours of net study', goal: 60000, val: (m) => m.minutes },
+  { id: 'sess_10', cat: 'sessions', tier: 1, icon: '♟', name: '10 blocks', desc: 'Log 10 blocks', goal: 10, val: (m) => m.sessions },
+  { id: 'sess_25', cat: 'sessions', tier: 1, icon: '♟', name: '25 blocks', desc: 'Log 25 blocks', goal: 25, val: (m) => m.sessions },
+  { id: 'sess_50', cat: 'sessions', tier: 2, icon: '♞', name: '50 blocks', desc: 'Log 50 blocks', goal: 50, val: (m) => m.sessions },
+  { id: 'sess_100', cat: 'sessions', tier: 3, icon: '♞', name: '100 blocks', desc: 'Log 100 blocks', goal: 100, val: (m) => m.sessions },
+  { id: 'sess_250', cat: 'sessions', tier: 4, icon: '♜', name: '250 blocks', desc: 'Log 250 blocks', goal: 250, val: (m) => m.sessions },
+  { id: 'sess_500', cat: 'sessions', tier: 5, icon: '♛', name: '500 blocks', desc: 'Log 500 blocks', goal: 500, val: (m) => m.sessions },
+  { id: 'mission_1', cat: 'missions', tier: 1, icon: '🎯', name: 'Mission accomplished', desc: 'Finish a mission', goal: 1, val: (m) => m.missions },
+  { id: 'mission_5', cat: 'missions', tier: 2, icon: '🎯', name: 'Five missions', desc: 'Finish 5 missions', goal: 5, val: (m) => m.missions },
+  { id: 'mission_10', cat: 'missions', tier: 3, icon: '🥇', name: 'Ten missions', desc: 'Finish 10 missions', goal: 10, val: (m) => m.missions },
+  { id: 'mission_25', cat: 'missions', tier: 5, icon: '♛', name: 'Twenty-five missions', desc: 'Finish 25 missions', goal: 25, val: (m) => m.missions },
+  { id: 'book_1', cat: 'books', tier: 1, icon: '📖', name: 'First book', desc: 'Finish a chess book', goal: 1, val: (m) => m.books },
+  { id: 'book_5', cat: 'books', tier: 2, icon: '📚', name: 'Five books', desc: 'Finish 5 chess books', goal: 5, val: (m) => m.books },
+  { id: 'book_10', cat: 'books', tier: 3, icon: '📚', name: 'Ten books', desc: 'Finish 10 chess books', goal: 10, val: (m) => m.books },
+  { id: 'book_25', cat: 'books', tier: 5, icon: '♛', name: 'A library', desc: 'Finish 25 chess books', goal: 25, val: (m) => m.books },
+  { id: 'week_full', cat: 'special', tier: 3, icon: '📅', name: 'Full week', desc: '7 days in a row above the daily minimum', goal: 7, val: (m) => m.bestWeekRun },
+  { id: 'tournament_1', cat: 'special', tier: 2, icon: '🏁', name: 'Tournament day', desc: 'Mark your first tournament day', goal: 1, val: (m) => m.tournaments },
+  { id: 'long_2h', cat: 'special', tier: 2, icon: '🧠', name: 'Two hours straight', desc: 'A single block of 2 hours or more', goal: 120, val: (m) => m.longest },
+  { id: 'focus_1', cat: 'special', tier: 1, icon: '✨', name: 'In the zone', desc: 'Rate a block as focused', goal: 1, val: (m) => m.focused },
+  { id: 'focus_20', cat: 'special', tier: 3, icon: '🧿', name: 'Deep work', desc: '20 blocks rated as focused', goal: 20, val: (m) => m.focused },
+  { id: 'themes_5', cat: 'special', tier: 2, icon: '🎓', name: 'All-rounder', desc: 'Study 5 different themes', goal: 5, val: (m) => m.themes },
+  { id: 'early_bird', cat: 'special', tier: 3, icon: '🌅', name: 'Early bird', desc: '5 blocks started before 8am', goal: 5, val: (m) => m.early, hidden: true },
+  { id: 'night_owl', cat: 'special', tier: 3, icon: '🌙', name: 'Night owl', desc: '5 blocks started after 10pm', goal: 5, val: (m) => m.late, hidden: true },
+  { id: 'marathon', cat: 'special', tier: 4, icon: '🐎', name: 'Marathon', desc: 'A single block of 4 hours or more', goal: 240, val: (m) => m.longest, hidden: true },
+  { id: 'comeback', cat: 'special', tier: 3, icon: '🔄', name: 'Back on track', desc: 'Study again after a two-week gap', goal: 1, val: (m) => m.comeback, hidden: true },
+];
+const Achievements = {
+  metrics() {
+    const sessions = activeSessions(); const all = sumRange(null, null); const sk = streakInfo();
+    const minMs = (state.settings.streak_min_min || 25) * MIN; const byDay = netByDay(null, null);
+    let bestWeekRun = 0, run = 0, prev = null, comeback = 0;
+    const keys = Array.from(byDay.keys()).sort();
+    keys.forEach((k) => {
+      if (prev && daysBetween(prev, k) >= 14) comeback = 1;
+      if (byDay.get(k).net < minMs) { run = 0; prev = k; return; }
+      run = prev && addDays(prev, 1) === k ? run + 1 : 1; bestWeekRun = Math.max(bestWeekRun, run); prev = k;
+    });
+    const hours = sessions.map((s) => new Date(ms(s.started_at)).getHours());
+    return {
+      sessions: sessions.length, minutes: all.netMin, streak: Math.max(sk.best, sk.current), bestWeekRun,
+      missions: state.missions.filter((m) => !m.deleted_at && (m.status === 'done' || missionStats(m).complete)).length,
+      books: (state.settings.books || []).length,
+      tournaments: tournamentDays().length,
+      longest: sessions.reduce((a, s) => Math.max(a, sessionTimes(s).net / MIN), 0),
+      focused: sessions.filter((s) => s.meta?.rating === 'focused').length,
+      themes: new Set(sessions.map((s) => s.theme).filter(Boolean)).size,
+      early: hours.filter((h) => h < 8).length, late: hours.filter((h) => h >= 22).length, comeback,
+    };
+  },
+  list() {
+    const m = this.metrics(); const won = state.settings.achievements || {};
+    return ACHIEVEMENTS.map((a) => { const have = a.val(m); return { ...a, have, done: !!won[a.id] || have >= a.goal, pct: clamp(have / a.goal, 0, 1), at: won[a.id] || null, rarity: RARITY[a.tier] }; });
+  },
+  /* Evaluated on real events, not on every render. */
+  check(event) {
+    const m = this.metrics(); const won = { ...(state.settings.achievements || {}) }; const fresh = [];
+    for (const a of ACHIEVEMENTS) { if (won[a.id]) continue; if (a.val(m) >= a.goal) { won[a.id] = iso(Date.now()); fresh.push(a); } }
+    if (!fresh.length) return [];
+    state.settings.achievements = won; state.settings.updated_at = iso(Date.now());
+    dirty('settings', 'settings'); persist();
+    if (state.settings.ach_feedback !== false) fresh.forEach((a, i) => setTimeout(() => announceAchievement(a), i * 1500));
+    emit('achievements', fresh);
+    return fresh;
+  },
+};
+
+/* Average focus rating, for the report *//* Average focus rating, for the report */
 function ratingStats(fromKey, toKey) {
   const out = { counts: { focused: 0, normal: 0, scattered: 0 }, byTheme: new Map(), byHour: new Map(), total: 0 };
   const score = { focused: 1, normal: 0.5, scattered: 0 };
@@ -253,7 +349,7 @@ function netByDay(fromKey, toKey, filter) {
   const map = new Map(); const now = nowMs();
   const fromMs = fromKey ? dayMs(fromKey, 0) : -Infinity, toMs = toKey ? dayMs(addDays(toKey, 1), 0) : Infinity;
   for (const s of state.sessions) {
-    if (!isLive(s) || (filter && !filter(s))) continue;
+    if (!isLive(s) || isTournament(s) || (filter && !filter(s))) continue;
     const st = ms(s.started_at), en = s.ended_at ? ms(s.ended_at) : now;
     if (en <= fromMs || st >= toMs || st >= now) continue; // planned (future) blocks don't count yet
     for (const sl of sliceSession(s, now)) {

@@ -37,6 +37,10 @@ const App = {
     this.route(); this.renderHeader();
     Background.apply();
     Timer.hydrate();
+    // achievements are evaluated on real events, not on every render
+    on('sessions', debounce(() => Achievements.check('SESSION_COMPLETED'), 800));
+    on('missions', debounce(() => Achievements.check('MISSION_COMPLETED'), 800));
+    setTimeout(() => Achievements.check('BOOT'), 1500);
     this.dailyQuote();
     Sync.pull();
   },
@@ -52,6 +56,10 @@ const App = {
     root.replaceChildren();
     if (hash.startsWith('report') || hash.startsWith('relatorio')) {
       document.body.dataset.page = 'report'; this.currentView = ReportView; ReportView.mount(root);
+    } else if (hash.startsWith('week')) {
+      document.body.dataset.page = 'sub'; this.currentView = WeeklyView; WeeklyView.mount(root);
+    } else if (hash.startsWith('achievements')) {
+      document.body.dataset.page = 'sub'; this.currentView = AchievementsView; AchievementsView.mount(root);
     } else {
       document.body.dataset.page = 'main'; this.currentView = null;
       const top = h('div', { class: 'top-row' });
@@ -64,7 +72,7 @@ const App = {
     this.renderHeader(); window.scrollTo({ top: 0 });
   },
   renderHeader() {
-    const isReport = document.body.dataset.page === 'report';
+    const page = document.body.dataset.page; const isReport = page === 'report'; const isSub = page === 'sub';
     const cfg = window.CSP_CONFIG || {};
     const actions = $('#top-actions');
     setKids(actions,
@@ -72,8 +80,26 @@ const App = {
       this.mounted ? h('button', { class: 'live-pill', id: 'live-pill', type: 'button', title: 'Go to the timer', onClick: () => { location.hash = ''; setTimeout(() => $('#card-timer')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 50); } }, h('i', { class: 'dot' }), h('span', { class: 'txt num' }, '00:00')) : null,
       this.mounted ? (isReport
         ? frag(h('button', { class: 'btn primary', onClick: () => window.print() }, '⬇ Save PDF'), h('a', { class: 'btn', href: '#/' }, 'Back'))
-        : frag(h('a', { class: 'btn', href: '#/report' }, '📄 Study report'), h('button', { class: 'btn icon', title: 'Settings', 'aria-label': 'Settings', onClick: () => Panel.settings() }, '⚙'), cfg.homeUrl ? h('a', { class: 'btn', href: cfg.homeUrl }, 'Back') : null)) : null);
+        : isSub ? h('a', { class: 'btn', href: '#/' }, 'Back')
+        : frag(h('button', { class: 'btn primary study-now', onClick: () => StudyNow.open() }, '+ Study now'),
+            h('a', { class: 'btn', href: '#/week' }, '📈 Week'), h('a', { class: 'btn', href: '#/achievements' }, '🏆'), h('a', { class: 'btn', href: '#/report' }, '📄 Report'),
+            h('button', { class: 'btn icon', title: 'Settings', 'aria-label': 'Settings', onClick: () => Panel.settings() }, '⚙'), cfg.homeUrl ? h('a', { class: 'btn', href: cfg.homeUrl }, 'Back') : null)) : null);
+    this.renderMobileNav();
     this.updateLivePill();
+  },
+  /* Mobile: bottom bar with the four areas and the primary action in the middle. */
+  renderMobileNav() {
+    if (!this.mounted) { const old = $('#mnav'); if (old) old.remove(); return; }
+    let nav = $('#mnav');
+    if (!nav) { nav = h('nav', { id: 'mnav', class: 'mnav' }); document.body.append(nav); }
+    const page = document.body.dataset.page; const hash = location.hash.replace(/^#\/?/, '');
+    const item = (href, icon, label, active) => h('a', { class: 'mnav-item' + (active ? ' on' : ''), href }, h('span', { class: 'ic' }, icon), h('span', null, label));
+    setKids(nav,
+      item('#/', '📅', 'Today', page === 'main'),
+      item('#/week', '📈', 'Week', hash.startsWith('week')),
+      h('button', { class: 'mnav-cta', onClick: () => StudyNow.open() }, '▶ STUDY'),
+      item('#/report', '📄', 'Report', page === 'report'),
+      item('#/achievements', '🏆', 'More', hash.startsWith('achievements')));
   },
   syncLabel(s) { return { idle: 'Synced', saving: 'Saving…', offline: 'Offline', error: 'Sync error', off: '' }[s] || ''; },
   updateSyncPill(s) { const p = $('#sync-pill'); if (!p) return; p.className = 'sync-pill ' + s; $('.txt', p).textContent = this.syncLabel(s); p.title = s === 'error' ? 'Could not save to the cloud. Your work is kept in this browser and will be sent when the connection is back.' : 'Sync'; },

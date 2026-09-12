@@ -1,0 +1,7 @@
+# Ficam só no seu computador — não vão para o GitHub
+SETUP.md
+publicar.bat
+supabase/
+notes/
+*.local
+.DS_Store

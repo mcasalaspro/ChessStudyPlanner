@@ -499,7 +499,7 @@ main { transition: transform 0.18s ease, padding-right 0.18s ease; }
   body { background: #fff !important; color: #111; font-size: 11pt; }
   #bgimg { display: none !important; }
   .ic { color: #333 !important; }
-  body::before, .topbar, .drawer, .snackbar, .banner-root, .seg, .btn, .legend i { display: none !important; }
+  body::before, .topbar, .drawer, .snackbar, .banner-root, .seg, .btn, .legend i, .ach-toast, #bg-credit, .mnav { display: none !important; }
   .legend i { display: inline-block !important; }
   main { max-width: none; padding: 0; }
   .card { background: #fff; border: 1px solid #ccc; box-shadow: none; break-inside: avoid; color: #111; }

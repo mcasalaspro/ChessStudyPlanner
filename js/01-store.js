@@ -13,7 +13,7 @@ const DEFAULT_THEMES = [
 const DEFAULT_SETTINGS = {
   name: '', themes: DEFAULT_THEMES.map((x) => ({ ...x })), last_theme: 'calculo',
   break_every_min: 25, break_len_min: 15, pause_autostop_min: 60, streak_min_min: 25, default_len_min: 60, snap_min: 15, target_min: null,
-  focus_anim: 'aurora', sound: true, bg_strength: 'strong', bg_source: 'folder', bg_query: 'chess dark moody', night_freeze: false, night_from: '23:00', night_to: '07:00', guided_breaks: true, locked_days: [], weekly_goal_hours: 0, books: [], achievements: {}, ach_feedback: true, updated_at: null,
+  focus_anim: 'aurora', sound: true, bg_strength: 'strong', bg_source: 'folder', bg_query: 'chess dark moody', unsplash_key: '', night_freeze: false, night_from: '23:00', night_to: '07:00', guided_breaks: true, locked_days: [], weekly_goal_hours: 0, books: [], achievements: {}, ach_feedback: true, updated_at: null,
 };
 let state = { v: 2, settings: JSON.parse(JSON.stringify(DEFAULT_SETTINGS)), sessions: [], missions: [] };
 let storageKey = 'csp:v2:local';
@@ -323,6 +323,52 @@ function rhythmBuckets(fromKey) {
     const r = s.meta?.rating; if (r && r in score) { bk.ratedN++; bk.ratedSum += score[r]; }
   }
   return out.map((b) => ({ ...b, days: b.days.size, focus: b.ratedN ? b.ratedSum / b.ratedN : null }));
+}
+
+/* ===== Numbers for the report ===== */
+function sessionsInRange(fromKey, toKey) {
+  return activeSessions().filter((s) => { const k = dayKeyOf(ms(s.started_at)); return (!fromKey || k >= fromKey) && (!toKey || k <= toKey); });
+}
+/* Per theme: time, share, number of blocks, average block, last day studied */
+function themeBreakdown(fromKey, toKey) {
+  const r = sumRange(fromKey, toKey);
+  const list = sessionsInRange(fromKey, toKey);
+  const counts = new Map(), last = new Map();
+  for (const s of list) {
+    const k = s.theme || '__none';
+    counts.set(k, (counts.get(k) || 0) + 1);
+    const d = dayKeyOf(ms(s.started_at));
+    if (!last.get(k) || d > last.get(k)) last.set(k, d);
+  }
+  const total = r.netMin || 0;
+  const rows = Array.from(r.byTheme.entries()).map(([k, min]) => ({
+    theme: k === '__none' ? null : k, min, share: total ? min / total : 0,
+    count: counts.get(k) || 0, avg: counts.get(k) ? min / counts.get(k) : 0, last: last.get(k) || null,
+  })).sort((a, b) => b.min - a.min);
+  return { rows, total, sessions: list.length };
+}
+function recordDay(fromKey, toKey) {
+  let best = { day: null, min: 0 };
+  for (const [k, v] of netByDay(fromKey, toKey)) { const m = v.net / MIN; if (m > best.min) best = { day: k, min: m }; }
+  return best;
+}
+function weekdayTotals(fromKey, toKey) {
+  const out = Array.from({ length: 7 }, () => ({ min: 0, days: new Set(), byTheme: new Map() }));
+  for (const [k, v] of netByDay(fromKey, toKey)) {
+    const wd = parseYmd(k).getDay(); const e = out[wd];
+    e.min += v.net / MIN; e.days.add(k);
+    for (const [th, msv] of v.byTheme) e.byTheme.set(th, (e.byTheme.get(th) || 0) + msv / MIN);
+  }
+  return out.map((e) => ({ min: e.min, days: e.days.size, avg: e.days.size ? e.min / e.days.size : 0, byTheme: Array.from(e.byTheme.entries()).map(([th, min]) => ({ theme: th === '__none' ? null : th, min })).sort((a, b) => b.min - a.min) }));
+}
+const LENGTH_BUCKETS = [[0, 30, 'under 30 min'], [30, 60, '30–60 min'], [60, 90, '60–90 min'], [90, 120, '90–120 min'], [120, Infinity, 'over 2 h']];
+function lengthHistogram(fromKey, toKey) {
+  const out = LENGTH_BUCKETS.map(([a, b, label]) => ({ a, b, label, count: 0, min: 0 }));
+  for (const s of sessionsInRange(fromKey, toKey)) {
+    const m = sessionTimes(s).net / MIN;
+    const bk = out.find((x) => m >= x.a && m < x.b); if (bk) { bk.count++; bk.min += m; }
+  }
+  return out;
 }
 
 /* ===== Achievements ===== */

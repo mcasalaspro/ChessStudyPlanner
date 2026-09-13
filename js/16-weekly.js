@@ -38,7 +38,7 @@ const WeeklyView = {
       h('section', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', null, 'Consistency')),
         h('div', { class: 'week-bars' }, ...w.perDay.map((d) => {
           const total = Math.max(d.min ? 6 : 0, (d.min / maxDay) * 100);
-          const segs = d.byTheme.map((t) => h('i', { class: 'seg', style: { flex: t.min, background: themeColor(t.theme) }, title: `${themeName(t.theme)} · ${fmtHM(t.min)}` }));
+          const segs = d.byTheme.map((t) => h('i', { class: 'sg', style: { flex: t.min, background: themeColor(t.theme) }, title: `${themeName(t.theme)} · ${fmtHM(t.min)}` }));
           return h('div', { class: 'wb' + (d.min > 0 ? ' on' : '') + (d.day === todayKey() ? ' today' : '') },
             h('div', { class: 'wb-bar' }, h('div', { class: 'wb-stack', style: { height: total + '%' } }, ...segs)),
             h('span', { class: 'wb-lbl' }, WD[parseYmd(d.day).getDay()]), h('span', { class: 'wb-val num' }, d.min ? fmtHM(d.min) : ''));

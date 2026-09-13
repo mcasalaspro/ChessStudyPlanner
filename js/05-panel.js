@@ -176,11 +176,17 @@ const Panel = {
       h('label', { class: 'field inline' }, h('span', null, 'Background picture'), h('select', { style: { width: 'auto' }, onChange: (e) => { updateSettings({ bg_strength: e.target.value }); Background.strength(); } }, ...[['soft', 'Discreet'], ['medium', 'Medium'], ['strong', 'Strong']].map(([v, l]) => h('option', { value: v, selected: v === (s.bg_strength || 'medium') }, l)))),
       h('label', { class: 'field inline' }, h('span', null, 'Picture source'), h('select', { style: { width: 'auto' }, onChange: (e) => { updateSettings({ bg_source: e.target.value }); Background.list = null; Background.apply(); Panel.settings(); } },
         ...[['folder', 'My folder'], ['unsplash', 'Unsplash']].map(([v, l]) => h('option', { value: v, selected: v === (s.bg_source || 'folder') }, l)))),
-      (s.bg_source === 'unsplash' && !(window.CSP_CONFIG || {}).unsplashAccessKey)
-        ? h('p', { class: 'hint warn' }, 'Add your Unsplash access key to config.js (unsplashAccessKey) — until then the folder is used.')
-        : s.bg_source === 'unsplash'
-          ? h('label', { class: 'field' }, h('span', null, 'Search words'), h('input', { type: 'text', value: s.bg_query || 'chess dark moody', maxlength: 60, onChange: (e) => { updateSettings({ bg_query: e.target.value.trim() || 'chess dark moody' }); Background.apply(); } }))
-          : null,
+      s.bg_source === 'unsplash' ? frag(
+        h('label', { class: 'field' }, h('span', null, 'Unsplash access key'),
+          h('input', { type: 'text', placeholder: 'paste the Access Key from unsplash.com/developers', value: (window.CSP_CONFIG || {}).unsplashAccessKey || s.unsplash_key || '', spellcheck: 'false',
+            disabled: !!(window.CSP_CONFIG || {}).unsplashAccessKey,
+            onChange: (e) => { updateSettings({ unsplash_key: e.target.value.trim() }); Background.apply(); Panel.settings(); } })),
+        (window.CSP_CONFIG || {}).unsplashAccessKey
+          ? h('p', { class: 'muted small' }, 'Coming from config.js — clear it there if you want to type another one here.')
+          : !Background.unsplashKey()
+            ? h('p', { class: 'hint warn' }, 'No key yet: paste it above (or put it in config.js as unsplashAccessKey). Until then the folder is used.')
+            : h('p', { class: 'muted small' }, 'Saved with your account — it works on any device you sign in from.'),
+        h('label', { class: 'field' }, h('span', null, 'Search words'), h('input', { type: 'text', value: s.bg_query || 'chess dark moody', maxlength: 60, onChange: (e) => { updateSettings({ bg_query: e.target.value.trim() || 'chess dark moody' }); Background.apply(); } }))) : null,
       h('div', { class: 'row' }, h('button', { class: 'btn sm', onClick: () => Background.next() }, icon('refresh'), 'Next picture'), h('button', { class: 'btn sm ghost', onClick: () => Background.useDaily() }, "Day's pick")),
       h('p', { class: 'muted small' }, s.bg_source === 'unsplash' ? 'A new Unsplash photo is drawn each day, with credit to the photographer. “Next picture” fetches another one.' : 'Pictures live in assets/bg/ (named 1, 2, 3… with .webp/.jpg/.png). One is drawn per day; the picture you choose here lasts until tomorrow.'),
       h('h3', null, 'Focus mode'),

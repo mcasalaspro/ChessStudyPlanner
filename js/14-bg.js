@@ -52,7 +52,7 @@ const Background = {
     step();
   },
   /* ---- Unsplash (optional): needs an access key in config.js ---- */
-  unsplashKey() { return (window.CSP_CONFIG || {}).unsplashAccessKey || ''; },
+  unsplashKey() { return String((window.CSP_CONFIG || {}).unsplashAccessKey || state.settings.unsplash_key || '').trim(); },
   unsplashQuery() { return (window.CSP_CONFIG || {}).unsplashQuery || state.settings.bg_query || 'chess dark moody'; },
   cacheKey() { return 'csp:v2:unsplash:' + (Auth.user?.id || 'x'); },
   unsplashOfDay(force = false) {

@@ -343,9 +343,9 @@ main { transition: transform 0.18s ease, padding-right 0.18s ease; }
 /* ---- focus plan bar and quote ---- */
 .fz-plan { margin: 26px auto 0; width: min(900px, 84vw); }
 .fz-plan-track { position: relative; display: flex; height: 26px; border-radius: 8px; overflow: hidden; background: rgba(255, 255, 255, 0.08); }
-.fz-plan-track .seg { display: block; height: 100%; }
-.fz-plan-track .seg.study { background: rgba(255, 255, 255, 0.9); }
-.fz-plan-track .seg.break { background: #4d7fe0; }
+.fz-plan-track .sg { display: block; height: 100%; border: 0; border-radius: 0; }
+.fz-plan-track .sg.study { background: rgba(255, 255, 255, 0.9); }
+.fz-plan-track .sg.break { background: #4d7fe0; }
 .fz-plan-track .mark { position: absolute; top: -5px; bottom: -5px; width: 3px; background: #ffd54a; box-shadow: 0 0 10px rgba(255, 213, 74, 0.9); border-radius: 2px; transition: left 0.5s linear; }
 .fz-plan-legend { margin-top: 8px; font-size: 13px; color: rgba(255, 255, 255, 0.6); text-align: center; }
 .fz-quote { position: absolute; bottom: 92px; width: min(760px, 86vw); text-align: center; z-index: 1; color: rgba(255, 255, 255, 0.62); font-size: 15px; line-height: 1.5; }
@@ -374,7 +374,7 @@ main { transition: transform 0.18s ease, padding-right 0.18s ease; }
 .wb { display: flex; flex-direction: column; align-items: center; gap: 4px; }
 .wb-bar { width: 100%; height: 76px; background: #232221; border-radius: 6px; display: flex; align-items: flex-end; overflow: hidden; }
 .wb-stack { width: 100%; display: flex; flex-direction: column-reverse; border-radius: 6px; overflow: hidden; min-height: 3px; }
-.wb-stack .seg { display: block; width: 100%; min-height: 2px; }
+.wb-stack .sg { display: block; width: 100%; min-height: 2px; border: 0; border-radius: 0; }
 .wb:not(.on) .wb-bar { background: #1f1e1d; }
 .wb.today .wb-lbl { color: var(--green); font-weight: 700; }
 .wb-lbl { font-size: 11px; color: var(--muted); } .wb-val { font-size: 10px; color: var(--muted); }
@@ -473,6 +473,30 @@ main { transition: transform 0.18s ease, padding-right 0.18s ease; }
 .ach.done.r-legendary { background-image: url("../assets/ui/decor/glow-gold.svg"); background-repeat: no-repeat; background-position: right -20px center; background-size: 150px; }
 .review h1 .ic, .card-head h2 .ic { color: var(--gold); }
 
+
+/* ---- report: areas table, kpis, extras ---- */
+.stats.wide.four { grid-template-columns: repeat(4, 1fr); }
+.report-head { align-items: flex-start; margin-bottom: 10px; gap: 10px; flex-wrap: wrap; }
+.area-table { display: flex; flex-direction: column; gap: 3px; }
+.area-row { display: grid; grid-template-columns: 150px 1fr 62px 46px 52px 56px; align-items: center; gap: 10px; padding: 3px 0; font-size: 13px; }
+.area-row.head { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); border-bottom: 1px solid var(--line); padding-bottom: 5px; margin-bottom: 3px; }
+.area-row.total { border-top: 1px solid var(--line); margin-top: 4px; padding-top: 6px; }
+.area-row .bar { height: 12px; }
+.area-row .num { text-align: right; }
+.wb-sub { font-size: 10px; }
+.report .bar-row { grid-template-columns: 150px 1fr 92px; }
+.report .bar-row .val { white-space: nowrap; }
+.ach-chip { width: auto; height: auto; padding: 5px 9px; gap: 6px; font-size: 12px; color: var(--text); }
+.ach-chip.gold { border-color: rgba(242, 164, 28, 0.6); color: var(--gold); }
+.ach-chip-name { font-weight: 600; }
+.mbar.empty .stack-col { opacity: 0.45; }
+
+@media (max-width: 760px) {
+  .stats.wide.four { grid-template-columns: repeat(2, 1fr); }
+  .area-row { grid-template-columns: 96px 1fr 54px 40px; }
+  .area-row > :nth-child(5), .area-row > :nth-child(6) { display: none; }
+}
+
 /* ---- responsive ---- */
 @media (max-width: 1080px) {
   .columns { grid-template-columns: 1fr; }
@@ -493,18 +517,67 @@ main { transition: transform 0.18s ease, padding-right 0.18s ease; }
 }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 
-/* ---- print (Salvar PDF) ---- */
+/* ---- print (Save PDF) ---- */
 @media print {
-  @page { size: A4; margin: 12mm; }
-  body { background: #fff !important; color: #111; font-size: 11pt; }
-  #bgimg { display: none !important; }
-  .ic { color: #333 !important; }
-  body::before, .topbar, .drawer, .snackbar, .banner-root, .seg, .btn, .legend i, .ach-toast, #bg-credit, .mnav { display: none !important; }
+  @page { size: A4; margin: 11mm 10mm 12mm; }
+  :root { --text: #111; --muted: #555; --faint: #777; --line: #d5d5d5; --line-2: #bbb; }
+  html, body { background: #fff !important; color: #111 !important; font-size: 9.6pt; }
+  * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+  body::before, #bgimg, .topbar, .drawer, .snackbar, .banner-root, .btn, .seg, .ach-toast, #bg-credit, .mnav, .quick-note, .empty .art { display: none !important; }
+  main { max-width: none !important; padding: 0 !important; margin: 0 !important; transform: none !important; height: auto !important; display: block !important; }
+  .review, .report { display: block !important; }
+
+  /* a clean title block on the first page */
+  .report-head { display: block; border-bottom: 2px solid #111; padding-bottom: 5mm; margin-bottom: 5mm; }
+  .report-head h1 { font-size: 17pt; color: #111; }
+  .report-head .muted { color: #555 !important; }
+
+  .card { background: #fff !important; border: 1px solid #ccc !important; border-radius: 3mm; box-shadow: none !important; backdrop-filter: none !important;
+    padding: 4mm 5mm !important; margin: 0 0 4mm !important; break-inside: avoid; page-break-inside: avoid; }
+  .card-head { margin-bottom: 3mm; }
+  h1, h2, h3, b, .num { color: #111 !important; }
+  h2 { font-size: 11.5pt; }
+  .sub, .muted, .faint { color: #555 !important; }
+
+  /* numbers */
+  .stats, .stats.wide, .stats.wide.four { grid-template-columns: repeat(4, 1fr) !important; gap: 3mm; }
+  .stats > div { border: 1px solid #ddd; background: #fafafa; padding: 2.5mm; }
+  .stats b { font-size: 12.5pt; }
+  .stats span { color: #666 !important; }
+
+  /* bars and tables keep their colours */
+  .bar, .progress, .wb-bar, .stack-col { background: #ededed !important; }
+  .area-row { break-inside: avoid; }
+  .area-row.head { border-color: #ccc; }
+  .mission-row, .note-item, .ach-chip, .book-row { background: #fafafa !important; border-color: #ddd !important; color: #111 !important; }
+  .mission-row { break-inside: avoid; }
+  .ach-strip { gap: 2mm; }
+  .ach-chip { border: 1px solid #ddd !important; }
+
+  /* calendar grid */
+  .tl-wrap { overflow: visible !important; max-height: none !important; }
+  .tl { min-width: 0 !important; }
+  .tl-row { height: 4.2mm; margin-bottom: 0.6mm; }
+  .tl-track .cell { background: #f0f0f0 !important; }
+  .tl-track .cell.night { background: #e6e6e6 !important; }
+  .tl-row.week-start::before { border-color: #bbb; }
+  .blk { box-shadow: none; }
+  .blk .t, .blk .when, .blk .ic { display: none !important; }
+  .now-line { background: #111 !important; box-shadow: none !important; }
+  .legend { color: #555 !important; }
   .legend i { display: inline-block !important; }
-  main { max-width: none; padding: 0; }
-  .card { background: #fff; border: 1px solid #ccc; box-shadow: none; break-inside: avoid; color: #111; }
-  .muted, .sub, .tl-label, .tl-hours span, .mlbl { color: #555 !important; }
-  .tl-track .cell { background: #eee; } .stack-col { background: #f2f2f2; } .mission-row { background: #fafafa; color: #111; } .progress { background: #e5e5e5; }
-  .mval, .tl-total { color: #111 !important; } .note-item { background: #fafafa; color: #111; }
-  .tl { min-width: 0; }
+
+  /* charts */
+  .mbars { height: 34mm; }
+  .mval, .mlbl, .wb-lbl, .wb-val, .wb-sub, .rh-lbl, .rh-val { color: #333 !important; }
+  .rh-stars { color: #c58a10 !important; }
+  .week-bars { break-inside: avoid; }
+
+  /* notes read better as flowing text */
+  .notes-section .note-item { border-left-width: 2mm; }
+  .md code { background: #eee; }
+  .ic { color: #333 !important; }
+
+  /* section order and page breaks */
+  .notes-section { page-break-before: always; }
 }

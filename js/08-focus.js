@@ -106,7 +106,7 @@ const Focus = {
       }
       markLeft += (sg.len / totalSpan) * 100;
     }
-    setKids(track, ...segs.map((sg) => h('i', { class: 'seg ' + sg.kind, style: { width: (sg.len / totalSpan) * 100 + '%' }, title: `${sg.kind === 'study' ? 'Study' : 'Break'} ${fmtHM(sg.len)}` })),
+    setKids(track, ...segs.map((sg) => h('i', { class: 'sg ' + sg.kind, style: { width: (sg.len / totalSpan) * 100 + '%' }, title: `${sg.kind === 'study' ? 'Study' : 'Break'} ${fmtHM(sg.len)}` })),
       h('span', { class: 'mark', style: { left: clamp(markLeft, 0, 100) + '%' } }));
     legend.textContent = target > 0
       ? `Target ${fmtHM(target)} · ${fmtHM(study)} study / ${fmtHM(brk)} break · ${fmtHM(Math.max(0, totalStudy - done))} to go`

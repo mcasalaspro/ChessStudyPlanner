@@ -69,7 +69,16 @@ const Sync = {
       this.saveDirty();
       // only one running block per account: keep the most recent, close the others
       const running = state.sessions.filter((s) => !s.deleted_at && !s.ended_at).sort((a, b) => b.updated_at.localeCompare(a.updated_at));
-      running.slice(1).forEach((s) => { const last = s.meta?.last_seen_at || s.updated_at; s.ended_at = iso(Math.max(ms(s.started_at) + 60000, ms(last))); s.meta = { ...(s.meta || {}), autoclosed: true, autoclosed_reason: 'conflict' }; s.updated_at = iso(Date.now()); this.dirty.add('session:' + s.id); changed++; });
+      // anything left running from an earlier day is closed where it stopped
+      running.forEach((s) => {
+        const last = s.meta?.last_seen_at ? ms(s.meta.last_seen_at) : ms(s.started_at);
+        if (dayKeyOf(ms(s.started_at)) !== todayKey() || nowMs() - last > 6 * HOUR) {
+          s.ended_at = iso(Math.max(ms(s.started_at) + 60000, last));
+          s.meta = { ...(s.meta || {}), autoclosed: true, autoclosed_reason: 'stale' };
+          s.updated_at = iso(Date.now()); this.dirty.add('session:' + s.id); changed++;
+        }
+      });
+      running.filter((s) => !s.ended_at).slice(1).forEach((s) => { const last = s.meta?.last_seen_at || s.updated_at; s.ended_at = iso(Math.max(ms(s.started_at) + 60000, ms(last))); s.meta = { ...(s.meta || {}), autoclosed: true, autoclosed_reason: 'conflict' }; s.updated_at = iso(Date.now()); this.dirty.add('session:' + s.id); changed++; });
       if (changed) { persist(); emit('change'); Timer.ensureLoops(); }
       if (this.status === 'error' || this.status === 'offline') this.setStatus('idle');
       this.flush();

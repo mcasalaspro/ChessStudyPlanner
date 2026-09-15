@@ -8,10 +8,16 @@ const Timer = {
     if (runningSession()) throw new Error('A block is already running.');
     const nowN = Math.round(nowMs()); const now = iso(nowN);
     // A block planned in advance that covers "now" (or starts within 15 min) is adopted by the timer instead of conflicting with it.
-    const planned = state.sessions.find((x) => isLive(x) && x.ended_at && ms(x.started_at) > ms(x.created_at) + 5 * MIN && ms(x.started_at) <= nowN + 15 * MIN && ms(x.ended_at) > nowN);
+    // A block planned for right now can be adopted — but never one that started long ago
+    // (that used to reopen a block already finished hours earlier).
+    const planned = state.sessions.find((x) => isLive(x) && x.ended_at && !isTournament(x) && !sessionLocked(x)
+      && !(x.pauses || []).length && x.source === 'manual' && !x.meta?.adopted
+      && ms(x.started_at) > ms(x.created_at) + 5 * MIN
+      && ms(x.started_at) >= nowN - 5 * MIN && ms(x.started_at) <= nowN + 15 * MIN
+      && ms(x.ended_at) > nowN);
     let s;
     if (planned) {
-      s = planned; s.started_at = now; s.ended_at = null; s.pauses = []; s.source = 'timer'; s.meta = { ...(s.meta || {}), last_seen_at: now, planned: true, free }; s.updated_at = iso(Date.now());
+      s = planned; s.started_at = now; s.ended_at = null; s.pauses = []; s.source = 'timer'; s.meta = { ...(s.meta || {}), last_seen_at: now, planned: true, adopted: true, free }; s.updated_at = iso(Date.now());
       if (theme) s.theme = theme;
     } else {
       s = newSessionObj({ theme: theme || state.settings.last_theme || null, started_at: now, ended_at: null, source: 'timer', meta: { last_seen_at: now, free } });
@@ -101,7 +107,7 @@ const Timer = {
     dirty('session', r.id); commit('timer', { status: 'idle' });
     const msg = reason === 'pause'
       ? `The break went past ${state.settings.pause_autostop_min} min, so the block was closed at the start of the break (${hm(end)}). Break time was not counted.`
-      : `The app went more than 12 h without a signal while the timer was running. The block was closed on ${fmtDayShort(dayKeyOf(end))} at ${hm(end)}.`;
+      : `The timer was left running with no sign of activity. The block was closed where it stopped: ${fmtDayShort(dayKeyOf(end))} at ${hm(end)}.`;
     showBanner('autoclosed-' + r.id, { text: msg, warn: true, actions: [{ label: 'Reopen / adjust', primary: true, onClick: () => { hideBanner('autoclosed-' + r.id); Panel.editSession(r.id); } }] });
   },
   heartbeat() {
@@ -116,7 +122,7 @@ const Timer = {
     const now = nowMs(), gap = now - lastSeen;
     const op = openPause(r);
     if (op && now - ms(op.start) > state.settings.pause_autostop_min * MIN) { this.autoClose(r, ms(op.start), 'pause'); return; }
-    if (gap > 12 * HOUR) { this.autoClose(r, lastSeen, 'idle'); return; }
+    if (gap > 6 * HOUR || dayKeyOf(ms(r.started_at)) !== todayKey()) { this.autoClose(r, lastSeen, 'idle'); return; }
     if (gap > 3 * MIN) {
       const id = 'absence';
       showBanner(id, {

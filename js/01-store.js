@@ -9,11 +9,12 @@ const DEFAULT_THEMES = [
   { id: 'video', name: 'Video Lesson', color: '#a875e6' },
   { id: 'analyze', name: 'Analyze Game', color: '#dba145' },
   { id: 'coach', name: 'Lesson with Coach', color: '#d86ab0' },
+  { id: 'meditation', name: 'Meditation', color: '#7dd3fc' },
 ];
 const DEFAULT_SETTINGS = {
   name: '', themes: DEFAULT_THEMES.map((x) => ({ ...x })), last_theme: 'calculo',
   break_every_min: 25, break_len_min: 15, pause_autostop_min: 60, streak_min_min: 25, default_len_min: 60, snap_min: 15, target_min: null,
-  focus_anim: 'aurora', sound: true, bg_strength: 'strong', bg_source: 'folder', bg_query: 'chess dark moody', unsplash_key: '', night_freeze: false, night_from: '23:00', night_to: '07:00', guided_breaks: true, locked_days: [], weekly_goal_hours: 0, books: [], achievements: {}, ach_feedback: true, updated_at: null,
+  focus_anim: 'aurora', sound: true, bg_strength: 'strong', bg_source: 'folder', bg_query: 'chess dark moody', unsplash_key: '', night_freeze: false, night_from: '23:00', night_to: '07:00', guided_breaks: true, locked_days: [], med_reminder: true, med_pattern: '46', med_minutes: 5, weekly_goal_hours: 0, books: [], achievements: {}, ach_feedback: true, updated_at: null,
 };
 let state = { v: 2, settings: JSON.parse(JSON.stringify(DEFAULT_SETTINGS)), sessions: [], missions: [] };
 let storageKey = 'csp:v2:local';
@@ -374,7 +375,7 @@ function lengthHistogram(fromKey, toKey) {
 /* ===== Achievements ===== */
 const RATINGS = [['focused', 'Focused', '#8bc34a'], ['normal', 'Normal', '#e0a03a'], ['scattered', 'Scattered', '#e06060']];
 const RARITY = { 1: ['common', 'Common', '○'], 2: ['uncommon', 'Uncommon', '◇'], 3: ['rare', 'Rare', '✦'], 4: ['epic', 'Epic', '✦✦'], 5: ['legendary', 'Legendary', '♛'] };
-const ACH_CATEGORIES = [['consistency', 'Consistency', 'fire'], ['volume', 'Time', 'clock'], ['sessions', 'Sessions', 'rook'], ['missions', 'Missions', 'focus'], ['books', 'Knowledge', 'book'], ['special', 'Milestones', 'king']];
+const ACH_CATEGORIES = [['consistency', 'Consistency', 'fire'], ['volume', 'Time', 'clock'], ['sessions', 'Sessions', 'rook'], ['missions', 'Missions', 'focus'], ['books', 'Knowledge', 'book'], ['meditation', 'Meditation', 'brain'], ['special', 'Milestones', 'king']];
 /* condition: (m) => number, against goal. `hidden` ones show as ??? until unlocked. */
 const ACHIEVEMENTS = [
   { id: 'first_session', cat: 'consistency', tier: 1, icon: 'bolt', name: 'First step', desc: 'Log your first study block', goal: 1, val: (m) => m.sessions },
@@ -405,6 +406,14 @@ const ACHIEVEMENTS = [
   { id: 'book_5', cat: 'books', tier: 2, icon: 'book', name: 'Five books', desc: 'Finish 5 chess books', goal: 5, val: (m) => m.books },
   { id: 'book_10', cat: 'books', tier: 3, icon: 'book', name: 'Ten books', desc: 'Finish 10 chess books', goal: 10, val: (m) => m.books },
   { id: 'book_25', cat: 'books', tier: 5, icon: 'queen', name: 'A library', desc: 'Finish 25 chess books', goal: 25, val: (m) => m.books },
+  { id: 'med_1', cat: 'meditation', tier: 1, icon: 'brain', name: 'First breath', desc: 'Finish your first meditation', goal: 1, val: (m) => m.medCount },
+  { id: 'med_10', cat: 'meditation', tier: 2, icon: 'brain', name: 'Ten sessions', desc: 'Finish 10 meditations', goal: 10, val: (m) => m.medCount },
+  { id: 'med_50', cat: 'meditation', tier: 3, icon: 'lightbulb', name: 'Fifty sessions', desc: 'Finish 50 meditations', goal: 50, val: (m) => m.medCount },
+  { id: 'med_streak_7', cat: 'meditation', tier: 3, icon: 'fire', name: 'A week of calm', desc: 'Meditate 7 days in a row', goal: 7, val: (m) => m.medStreak },
+  { id: 'med_streak_30', cat: 'meditation', tier: 5, icon: 'queen', name: 'A month of calm', desc: 'Meditate 30 days in a row', goal: 30, val: (m) => m.medStreak },
+  { id: 'med_min_60', cat: 'meditation', tier: 2, icon: 'clock', name: 'One hour of breathing', desc: '60 minutes of meditation', goal: 60, val: (m) => m.medMinutes },
+  { id: 'med_min_600', cat: 'meditation', tier: 4, icon: 'award', name: 'Ten hours of breathing', desc: '10 hours of meditation', goal: 600, val: (m) => m.medMinutes },
+  { id: 'med_before_study', cat: 'meditation', tier: 3, icon: 'focus', name: 'Clear head', desc: 'Meditate and study on the same day, 10 times', goal: 10, val: (m) => m.medWithStudy, hidden: true },
   { id: 'week_full', cat: 'special', tier: 3, icon: 'calendar', name: 'Full week', desc: '7 days in a row above the daily minimum', goal: 7, val: (m) => m.bestWeekRun },
   { id: 'tournament_1', cat: 'special', tier: 2, icon: 'flag', name: 'Tournament day', desc: 'Mark your first tournament day', goal: 1, val: (m) => m.tournaments },
   { id: 'long_2h', cat: 'special', tier: 2, icon: 'brain', name: 'Two hours straight', desc: 'A single block of 2 hours or more', goal: 120, val: (m) => m.longest },
@@ -437,6 +446,15 @@ const Achievements = {
       focused: sessions.filter((s) => s.meta?.rating === 'focused').length,
       themes: new Set(sessions.map((s) => s.theme).filter(Boolean)).size,
       early: hours.filter((h) => h < 8).length, late: hours.filter((h) => h >= 22).length, comeback,
+      ...(() => {
+        const med = sessions.filter((x) => x.meta?.type === 'meditation');
+        const medDays = new Set(med.map((x) => dayKeyOf(ms(x.started_at))));
+        const studyDays = new Set(sessions.filter((x) => x.meta?.type !== 'meditation').map((x) => dayKeyOf(ms(x.started_at))));
+        let streak = 0; let d = todayKey(); if (!medDays.has(d)) d = addDays(d, -1);
+        while (medDays.has(d)) { streak++; d = addDays(d, -1); }
+        return { medCount: med.length, medMinutes: med.reduce((a, x) => a + sessionTimes(x).net / MIN, 0), medStreak: streak,
+          medWithStudy: Array.from(medDays).filter((k) => studyDays.has(k)).length };
+      })(),
     };
   },
   list() {

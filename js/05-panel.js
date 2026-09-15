@@ -163,6 +163,7 @@ const Panel = {
       h('label', { class: 'field inline' }, h('span', null, 'Break length (min)'), h('select', { style: { width: 'auto' }, onChange: (e) => updateSettings({ break_len_min: +e.target.value }) }, ...[10, 15, 30].map((v) => h('option', { value: v, selected: v === (s.break_len_min || 15) }, v)))),
       num('Close a forgotten break after (min)', 'pause_autostop_min', 5, 600), num('Daily minimum for the streak (min)', 'streak_min_min', 1, 600),
       h('label', { class: 'field inline' }, h('span', null, 'Sound on break reminder and stop'), h('input', { type: 'checkbox', class: 'switch', checked: !!s.sound, onChange: (e) => updateSettings({ sound: e.target.checked }) })), notifRow,
+      h('label', { class: 'field inline' }, h('span', null, 'Remind me to meditate'), h('input', { type: 'checkbox', class: 'switch', checked: s.med_reminder !== false, onChange: (e) => updateSettings({ med_reminder: e.target.checked }) })),
       h('h3', null, 'Calendar'),
       num('Length when clicking an empty slot (min)', 'default_len_min', 5, 480),
       h('label', { class: 'field inline' }, h('span', null, 'Freeze night hours (bedtime)'), h('input', { type: 'checkbox', class: 'switch', checked: !!s.night_freeze, onChange: (e) => { updateSettings({ night_freeze: e.target.checked }); Panel.settings(); } })),

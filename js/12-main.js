@@ -42,12 +42,25 @@ const App = {
     on('missions', debounce(() => Achievements.check('MISSION_COMPLETED'), 800));
     setTimeout(() => Achievements.check('BOOT'), 1500);
     this.dailyQuote();
+    setTimeout(() => this.meditationReminder(), 2500);
     Sync.pull();
   },
   /* Quote of the day: same one all day, shown every time the app is opened. Click it for another. */
   dailyQuote(q) {
     const quote = q || quoteOfDay();
     showBanner('quote', { text: h('button', { class: 'quote-btn', title: 'Show another quote', onClick: () => this.dailyQuote(randomQuote()) }, h('i', null, `“${quote.t}”`), h('span', { class: 'muted' }, ` — ${quote.s}`)) });
+  },
+  /* A quiet nudge when the day has no meditation yet. */
+  meditationReminder() {
+    if (state.settings.med_reminder === false) return;
+    const key = 'csp:v2:medrem:' + (Auth.user?.id || 'x');
+    try { if (localStorage.getItem(key) === todayKey()) return; } catch { /* */ }
+    if (meditationStats().today) return;
+    showBanner('meditate', { text: 'No meditation today yet — two minutes of breathing before you study?', actions: [
+      { label: '2 min now', primary: true, onClick: () => { hideBanner('meditate'); Meditation.open(2); } },
+      { label: 'Choose', onClick: () => { hideBanner('meditate'); Meditation.open(); } },
+      { label: 'Not today', onClick: () => { try { localStorage.setItem(key, todayKey()); } catch { /* */ } hideBanner('meditate'); } },
+    ] });
   },
   route() {
     const hash = location.hash.replace(/^#\/?/, '');
@@ -82,6 +95,7 @@ const App = {
         ? frag(h('button', { class: 'btn primary', onClick: () => window.print() }, icon('chart'), 'Save PDF'), h('a', { class: 'btn', href: '#/' }, 'Back'))
         : isSub ? h('a', { class: 'btn', href: '#/' }, 'Back')
         : frag(h('button', { class: 'btn primary study-now', onClick: () => StudyNow.open() }, icon('play'), 'Study now'),
+            h('button', { class: 'btn', title: 'Breathing practice', onClick: () => Meditation.open() }, icon('brain'), 'Meditation'),
             h('a', { class: 'btn', href: '#/week' }, icon('bar-chart'), 'Week'), h('a', { class: 'btn', href: '#/achievements' }, icon('award')), h('a', { class: 'btn', href: '#/report' }, icon('chart'), 'Report'),
             h('button', { class: 'btn icon', title: 'Settings', 'aria-label': 'Settings', onClick: () => Panel.settings() }, icon('gear')), cfg.homeUrl ? h('a', { class: 'btn', href: cfg.homeUrl }, 'Back') : null)) : null);
     this.renderMobileNav();

@@ -27,7 +27,9 @@ const TimerCard = {
       r && s.target_min ? h('button', { class: 'btn sm ghost', title: 'Remove the target', onClick: () => updateSettings({ target_min: null }) }, '✕') : null);
     const quick = r ? h('div', { class: 'quick-note' }, h('textarea', { rows: 2, placeholder: 'Quick note (Ctrl+Enter adds it to the block)', onKeydown: (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); this.addNote(e.target); } } }), h('button', { class: 'btn sm', onClick: (e) => this.addNote(e.currentTarget.previousElementSibling) }, 'Add')) : null;
     setKids(this.el,
-      h('div', { class: 'card-head' }, h('h2', null, 'Study timer'), r ? h('button', { class: 'btn sm ghost', onClick: () => Panel.editSession(r.id) }, icon('edit'), 'Block details') : h('button', { class: 'btn sm', id: 'btn-study-now', title: 'Choose theme, length and breaks first', onClick: () => StudyNow.open() }, icon('gear'), 'With setup')),
+      h('div', { class: 'card-head' }, h('h2', null, 'Study timer'), r ? h('button', { class: 'btn sm ghost', onClick: () => Panel.editSession(r.id) }, icon('edit'), 'Block details') : h('div', { class: 'row' },
+        h('button', { class: 'btn sm', title: 'Breathing practice — counts as study time', onClick: () => Meditation.open() }, icon('brain'), 'Meditation'),
+        h('button', { class: 'btn sm', id: 'btn-study-now', title: 'Choose theme, length and breaks first', onClick: () => StudyNow.open() }, icon('gear'), 'With setup'))),
       chips,
       h('div', { class: 'clock ' + st + (onBreak ? ' onbreak' : '') }, h('div', { class: 'clock-frozen num', id: 'clk-frozen' }), h('div', { class: 'clock-main num', id: 'clk-main', role: 'timer' }, '00:00'), h('div', { class: 'clock-sub', id: 'clk-sub' }, 'Pick a theme and start.')),
       h('div', { class: 'actions' }, focusBtn, startBtn, pauseBtn, plusBtn, stopBtn),

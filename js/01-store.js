@@ -14,7 +14,7 @@ const DEFAULT_THEMES = [
 const DEFAULT_SETTINGS = {
   name: '', themes: DEFAULT_THEMES.map((x) => ({ ...x })), last_theme: 'calculo',
   break_every_min: 25, break_len_min: 15, pause_autostop_min: 60, streak_min_min: 25, default_len_min: 60, snap_min: 15, target_min: null,
-  focus_anim: 'aurora', sound: true, bg_strength: 'strong', bg_source: 'folder', bg_query: 'chess dark moody', unsplash_key: '', night_freeze: false, night_from: '23:00', night_to: '07:00', guided_breaks: true, locked_days: [], med_reminder: true, med_pattern: '46', med_minutes: 5, weekly_goal_hours: 0, books: [], achievements: {}, ach_feedback: true, updated_at: null,
+  focus_anim: 'aurora', sound: true, bg_strength: 'strong', bg_source: 'folder', bg_query: 'chess dark moody', unsplash_key: '', night_freeze: false, night_from: '23:00', night_to: '07:00', guided_breaks: true, locked_days: [], med_reminder: true, med_pattern: '46', med_minutes: 5, wh_rounds: 3, wh_breaths: 30, wh_pace: 'normal', weekly_goal_hours: 0, books: [], achievements: {}, ach_feedback: true, updated_at: null,
 };
 let state = { v: 2, settings: JSON.parse(JSON.stringify(DEFAULT_SETTINGS)), sessions: [], missions: [] };
 let storageKey = 'csp:v2:local';
@@ -413,6 +413,7 @@ const ACHIEVEMENTS = [
   { id: 'med_streak_30', cat: 'meditation', tier: 5, icon: 'queen', name: 'A month of calm', desc: 'Meditate 30 days in a row', goal: 30, val: (m) => m.medStreak },
   { id: 'med_min_60', cat: 'meditation', tier: 2, icon: 'clock', name: 'One hour of breathing', desc: '60 minutes of meditation', goal: 60, val: (m) => m.medMinutes },
   { id: 'med_min_600', cat: 'meditation', tier: 4, icon: 'award', name: 'Ten hours of breathing', desc: '10 hours of meditation', goal: 600, val: (m) => m.medMinutes },
+  { id: 'med_wim', cat: 'meditation', tier: 4, icon: 'fire', name: 'Iceman', desc: 'Complete a Wim Hof session', goal: 1, val: (m) => m.medWim, hidden: true },
   { id: 'med_before_study', cat: 'meditation', tier: 3, icon: 'focus', name: 'Clear head', desc: 'Meditate and study on the same day, 10 times', goal: 10, val: (m) => m.medWithStudy, hidden: true },
   { id: 'week_full', cat: 'special', tier: 3, icon: 'calendar', name: 'Full week', desc: '7 days in a row above the daily minimum', goal: 7, val: (m) => m.bestWeekRun },
   { id: 'tournament_1', cat: 'special', tier: 2, icon: 'flag', name: 'Tournament day', desc: 'Mark your first tournament day', goal: 1, val: (m) => m.tournaments },
@@ -453,6 +454,7 @@ const Achievements = {
         let streak = 0; let d = todayKey(); if (!medDays.has(d)) d = addDays(d, -1);
         while (medDays.has(d)) { streak++; d = addDays(d, -1); }
         return { medCount: med.length, medMinutes: med.reduce((a, x) => a + sessionTimes(x).net / MIN, 0), medStreak: streak,
+          medWim: med.filter((x) => x.meta?.pattern === 'wimhof' && x.meta?.completed).length,
           medWithStudy: Array.from(medDays).filter((k) => studyDays.has(k)).length };
       })(),
     };

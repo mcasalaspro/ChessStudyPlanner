@@ -95,7 +95,7 @@ const App = {
         ? frag(h('button', { class: 'btn primary', onClick: () => window.print() }, icon('chart'), 'Save PDF'), h('a', { class: 'btn', href: '#/' }, 'Back'))
         : isSub ? h('a', { class: 'btn', href: '#/' }, 'Back')
         : frag(h('button', { class: 'btn primary study-now', onClick: () => StudyNow.open() }, icon('play'), 'Study now'),
-            h('button', { class: 'btn', title: 'Breathing practice', onClick: () => Meditation.open() }, icon('brain'), 'Meditation'),
+            h('button', { class: 'btn med-open', title: 'Breathing practice', onClick: () => Meditation.open() }, icon('brain'), 'Meditation'),
             h('a', { class: 'btn', href: '#/week' }, icon('bar-chart'), 'Week'), h('a', { class: 'btn', href: '#/achievements' }, icon('award')), h('a', { class: 'btn', href: '#/report' }, icon('chart'), 'Report'),
             h('button', { class: 'btn icon', title: 'Settings', 'aria-label': 'Settings', onClick: () => Panel.settings() }, icon('gear')), cfg.homeUrl ? h('a', { class: 'btn', href: cfg.homeUrl }, 'Back') : null)) : null);
     this.renderMobileNav();

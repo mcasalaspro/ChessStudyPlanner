@@ -498,35 +498,84 @@ main { transition: transform 0.18s ease, padding-right 0.18s ease; }
 }
 
 
-/* ---- meditation ---- */
-.med-list { display: flex; flex-direction: column; gap: 6px; max-height: 260px; overflow-y: auto; }
-.med-item { display: flex; align-items: center; gap: 10px; width: 100%; appearance: none; font: inherit; text-align: left; color: var(--text);
-  background: #1c1b1a; border: 1px solid var(--line); border-left: 3px solid var(--c); border-radius: var(--r-sm); padding: 8px 10px; cursor: pointer; }
-.med-item:hover { background: #232221; } .med-item.on { border-color: var(--c); background: color-mix(in srgb, var(--c) 12%, #1c1b1a); }
-.med-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--c); box-shadow: 0 0 10px var(--c); flex: 0 0 auto; }
-.med-sp { font-size: 12px; color: var(--muted); white-space: nowrap; }
+/* ---- meditation: chooser ---- */
+.modal.med-modal { width: min(560px, 100%); }
+.med-cat { margin-bottom: 12px; }
+.med-cat-h { display: flex; align-items: baseline; gap: 8px; margin: 2px 0 6px; }
+.med-cat-h b { font-size: 12px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); }
+.med-item { display: flex; align-items: center; gap: 11px; width: 100%; appearance: none; font: inherit; text-align: left; color: var(--text); margin-bottom: 5px;
+  background: linear-gradient(160deg, rgba(255,255,255,.05), rgba(255,255,255,.015)); border: 1px solid var(--line); border-radius: 14px; padding: 10px 12px; cursor: pointer; transition: border-color .15s, background .15s, transform .1s; }
+.med-item:hover { border-color: color-mix(in srgb, var(--c) 60%, transparent); transform: translateY(-1px); }
+.med-item.on { border-color: var(--c); background: color-mix(in srgb, var(--c) 13%, transparent); }
+.med-dot { width: 11px; height: 11px; border-radius: 50%; background: var(--c); box-shadow: 0 0 12px var(--c); flex: 0 0 auto; }
+.med-sp { font-size: 12px; font-weight: 600; color: var(--muted); white-space: nowrap; letter-spacing: .5px; }
+.med-detail { border: 1px solid color-mix(in srgb, var(--c) 45%, transparent); background: color-mix(in srgb, var(--c) 8%, transparent); border-radius: 14px; padding: 12px 14px; }
+.med-detail > b { color: var(--c); }
+.med-detail p { margin-top: 5px; }
+.btn.med-start { background: #38bdf8; border-color: #38bdf8; color: #06121c; }
+.btn.med-start:hover { background: #7dd3fc; }
+.btn.med-open { color: #7dd3fc; border-color: rgba(125, 211, 252, .45); }
+.btn.med-open:hover { background: rgba(125, 211, 252, .14); }
 
+/* ---- meditation: practice screen (ported from Respire) ---- */
 body.med-open { overflow: hidden; }
-.med { position: fixed; inset: 0; z-index: 85; display: flex; flex-direction: column; align-items: center; color: #e9eff7;
-  background: radial-gradient(120% 90% at 50% 10%, color-mix(in srgb, var(--c) 18%, #060a13), #060a13 70%); }
-.med-top { width: 100%; display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; }
-.med-top .btn { color: rgba(255,255,255,.7); }
-.med-center { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; position: relative; }
-.med-orb { width: min(46vh, 300px); height: min(46vh, 300px); border-radius: 50%; transition: transform linear;
-  background: radial-gradient(circle at 50% 45%, color-mix(in srgb, var(--c) 80%, #fff 0%) 0%, color-mix(in srgb, var(--c) 45%, transparent) 55%, transparent 72%);
-  box-shadow: 0 0 80px color-mix(in srgb, var(--c) 45%, transparent); display: flex; align-items: center; justify-content: center; }
-.med-orb-in { width: 62%; height: 62%; border-radius: 50%; border: 1.5px solid color-mix(in srgb, var(--c) 60%, transparent); }
-.med-orb.hold { animation: medHold 3.2s ease-in-out infinite; }
-@keyframes medHold { 50% { box-shadow: 0 0 120px color-mix(in srgb, var(--c) 60%, transparent); } }
-.med-count { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 54px; font-weight: 300; color: #fff; text-shadow: 0 0 24px rgba(0,0,0,.5); z-index: 2; }
-.med-phase { font-size: 24px; font-weight: 700; margin-top: 18px; }
-.med-hint { font-size: 14px; color: rgba(255,255,255,.55); }
-.med-cycles { font-size: 12px; color: rgba(255,255,255,.4); letter-spacing: 0.08em; text-transform: uppercase; margin-top: 4px; }
-.med-bar { width: min(560px, 86vw); height: 4px; border-radius: 3px; background: rgba(255,255,255,.12); overflow: hidden; }
-.med-bar i { display: block; height: 100%; width: 0; background: var(--c); transition: width 0.2s linear; }
-.med-actions { display: flex; gap: 10px; padding: 18px 0 30px; }
-.med-actions .btn { background: rgba(255,255,255,.1); border-color: rgba(255,255,255,.2); color: #fff; padding: 11px 20px; }
-@media (prefers-reduced-motion: reduce) { .med-orb { transition: none; } .med-orb.hold { animation: none; } }
+.med { position: fixed; inset: 0; z-index: 86; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  background: #060a13; color: #e9eff7; font-family: var(--font); }
+.med-aurora { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+.med-aurora i { position: absolute; border-radius: 50%; filter: blur(90px); display: block; }
+.med-aurora i:nth-child(1) { width: 560px; height: 560px; top: -190px; left: -160px; background: radial-gradient(circle, color-mix(in srgb, var(--ac) 34%, transparent), transparent 65%); animation: medDrift1 26s ease-in-out infinite alternate; }
+.med-aurora i:nth-child(2) { width: 520px; height: 520px; bottom: -200px; right: -170px; background: radial-gradient(circle, rgba(8,145,178,.28), transparent 65%); animation: medDrift2 31s ease-in-out infinite alternate; }
+.med-aurora i:nth-child(3) { width: 420px; height: 420px; top: 38%; left: 52%; background: radial-gradient(circle, rgba(162,28,175,.16), transparent 65%); animation: medDrift3 37s ease-in-out infinite alternate; }
+@keyframes medDrift1 { to { transform: translate(90px, 70px) scale(1.15); } }
+@keyframes medDrift2 { to { transform: translate(-80px, -70px) scale(1.18); } }
+@keyframes medDrift3 { to { transform: translate(-70px, 50px) scale(.9); } }
+.med .tb { position: absolute; top: 16px; left: 16px; right: 16px; display: flex; justify-content: space-between; align-items: center; z-index: 10; }
+.med .tbr { display: flex; gap: 8px; align-items: center; }
+.med .bt { background: rgba(255,255,255,.06); backdrop-filter: blur(8px); border: 1px solid rgba(255,255,255,.07); color: #8195ab; padding: 8px 13px; border-radius: 11px; cursor: pointer; font: inherit; font-size: 12px; font-weight: 500; }
+.med .bt:hover { color: #cfe0ef; }
+.med .ti { color: #45586e; font-size: 12px; font-variant-numeric: tabular-nums; }
+.med .bc2 { text-align: center; position: relative; z-index: 1; }
+.med .bname { font-size: 12px; color: #7c90a8; font-weight: 600; letter-spacing: 2.5px; text-transform: uppercase; margin-bottom: 14px; }
+.med .bi { font-size: 13px; font-weight: 500; color: #6e83a0; margin-bottom: 24px; text-transform: uppercase; letter-spacing: 1.8px; transition: opacity .3s; min-height: 20px; }
+.med .cw { position: relative; width: 264px; height: 264px; margin: 0 auto; }
+.med .halo { position: absolute; border-radius: 50%; pointer-events: none; }
+.med .h1 { inset: -24px; border: 1px dashed var(--ac); opacity: .16; animation: medSpin 44s linear infinite; }
+.med .h2 { inset: -46px; border: 1px dotted var(--ac); opacity: .09; animation: medSpinR 70s linear infinite; }
+@keyframes medSpin { to { transform: rotate(360deg); } }
+@keyframes medSpinR { to { transform: rotate(-360deg); } }
+.med .orbits { position: absolute; inset: 0; animation: medSpin 26s linear infinite; pointer-events: none; }
+.med .odot { position: absolute; top: 50%; left: 50%; width: 5px; height: 5px; margin: -2.5px; border-radius: 50%; background: var(--ac); box-shadow: 0 0 9px var(--ac); opacity: .75; }
+.med .med-glow { position: absolute; inset: -60px; border-radius: 50%; pointer-events: none; }
+.med .sr { position: absolute; top: 0; left: 0; width: 100%; height: 100%; transform: rotate(-90deg); }
+.med .rb { fill: none; stroke: rgba(255,255,255,.05); stroke-width: 2.5; }
+.med .rf { fill: none; stroke-width: 2.5; stroke-linecap: round; transition: stroke-dashoffset .3s linear; filter: drop-shadow(0 0 6px var(--ac)); }
+.med .bu { position: absolute; top: 50%; left: 50%; width: 172px; height: 172px; border-radius: 50%; transform: translate(-50%, -50%) scale(.35); will-change: transform; }
+.med .bh { position: absolute; top: 15%; left: 19%; width: 30%; height: 30%; border-radius: 50%; }
+.med .bu.holdp { animation: medHoldGlow 3.2s ease-in-out infinite; }
+@keyframes medHoldGlow { 0%, 100% { filter: brightness(1); } 50% { filter: brightness(1.25); } }
+.med .ct { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; z-index: 2; }
+.med .cr2 { font-size: 42px; font-weight: 700; color: #fff; text-shadow: 0 2px 18px rgba(0,0,0,.55); font-variant-numeric: tabular-nums; }
+.med .cr2.cdn { font-size: 84px; animation: medPulse 1s ease infinite; }
+@keyframes medPulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.06); } }
+.med .clb { font-size: 14px; font-weight: 600; color: #fff; text-shadow: 0 1px 8px rgba(0,0,0,.5); margin-top: 2px; letter-spacing: .5px; }
+.med .pds { display: flex; justify-content: center; gap: 6px; margin-top: 30px; flex-wrap: wrap; }
+.med .pdt { padding: 6px 11px; border-radius: 9px; font-size: 11px; font-weight: 600; transition: all .3s; background: rgba(255,255,255,.03); color: #2e4055; border: 1px solid transparent; font-variant-numeric: tabular-nums; }
+.med .med-info { margin-top: 14px; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: #46586e; }
+.med .med-cta { margin-top: 16px; min-height: 44px; display: flex; justify-content: center; }
+.med .med-big { background: linear-gradient(135deg, var(--ac), color-mix(in srgb, var(--ac) 70%, #fb923c)); border: 0; color: #131005; font-weight: 800; padding: 14px 26px; border-radius: 14px; box-shadow: 0 10px 34px color-mix(in srgb, var(--ac) 35%, transparent); }
+.med .bb { position: absolute; bottom: 24px; left: 32px; right: 32px; }
+.med .pt { height: 3px; border-radius: 2px; background: rgba(255,255,255,.06); overflow: hidden; }
+.med .pf { height: 100%; border-radius: 2px; transition: width .3s linear; width: 0; }
+.med .pl2 { display: flex; justify-content: space-between; margin-top: 7px; font-size: 11px; color: #2e4055; font-variant-numeric: tabular-nums; }
+@media (max-width: 480px) {
+  .med .cw { width: 224px; height: 224px; }
+  .med .bu { width: 150px; height: 150px; }
+  .med .cr2 { font-size: 36px; } .med .cr2.cdn { font-size: 72px; }
+  .med .bb { left: 20px; right: 20px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .med-aurora i, .med .h1, .med .h2, .med .orbits, .med .cr2.cdn, .med .bu.holdp { animation: none; }
+}
 
 /* ---- responsive ---- */
 @media (max-width: 1080px) {

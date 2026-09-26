@@ -103,13 +103,14 @@ const WeeklyView = {
 
 const AchievementsView = {
   el: null, offs: [],
-  mount(root) { this.el = h('div', { class: 'review ach-page' }); root.append(this.el); this.render(); this.offs.push(on('change', () => { if (!RoomView.busy()) this.render(); }), on('achievements', () => this.render())); },
+  /* the room card stays mounted (its character and animals keep walking); the rest is redrawn on changes */
+  mount(root) { this.rest = h('div'); this.el = h('div', { class: 'review ach-page' }, RoomView.card(), this.rest); root.append(this.el); this.render();
+    this.offs.push(on('room', () => { this.roomOnly = true; }), on('change', () => { if (this.roomOnly) { this.roomOnly = false; return; } if (!RoomView.busy()) this.render(); }), on('achievements', () => this.render())); },
   unmount() { this.offs.forEach((f) => f()); this.offs = []; RoomView.unmount(); },
   render() {
     const list = Achievements.list(); const got = list.filter((a) => a.done).length;
     const books = (state.settings.books || []).slice().sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-    setKids(this.el,
-      RoomView.card(),
+    setKids(this.rest,
       h('div', { class: 'row between', style: { margin: '6px 0 10px' } }, h('div', null, h('h1', null, icon('award', 'big'), ' Achievements'), h('p', { class: 'muted small' }, `${got} of ${list.length} unlocked · each one adds credits (10 to 200 by rarity)`)), null),
       h('section', { class: 'card' }, h('div', { class: 'progress' }, h('i', { style: { width: (got / list.length) * 100 + '%', background: 'var(--gold)' } }))),
       ...ACH_CATEGORIES.map(([cat, label, ico]) => {

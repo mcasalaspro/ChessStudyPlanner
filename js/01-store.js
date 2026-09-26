@@ -404,7 +404,7 @@ function lengthHistogram(fromKey, toKey) {
 /* ===== Achievements ===== */
 const RATINGS = [['focused', 'Focused', '#8bc34a'], ['normal', 'Normal', '#e0a03a'], ['scattered', 'Scattered', '#e06060']];
 const RARITY = { 1: ['common', 'Common', '○'], 2: ['uncommon', 'Uncommon', '◇'], 3: ['rare', 'Rare', '✦'], 4: ['epic', 'Epic', '✦✦'], 5: ['legendary', 'Legendary', '♛'] };
-const ACH_CATEGORIES = [['consistency', 'Consistency', 'fire'], ['volume', 'Time', 'clock'], ['sessions', 'Sessions', 'rook'], ['missions', 'Missions', 'focus'], ['books', 'Knowledge', 'book'], ['meditation', 'Meditation', 'brain'], ['special', 'Milestones', 'king']];
+const ACH_CATEGORIES = [['consistency', 'Consistency', 'fire'], ['volume', 'Time', 'clock'], ['sessions', 'Sessions', 'rook'], ['missions', 'Missions', 'focus'], ['books', 'Knowledge', 'book'], ['meditation', 'Meditation', 'brain'], ['special', 'Milestones', 'king'], ['rooms', 'Your rooms', 'star']];
 /* condition: (m) => number, against goal. `hidden` ones show as ??? until unlocked. */
 const ACHIEVEMENTS = [
   { id: 'first_session', cat: 'consistency', tier: 1, icon: 'bolt', name: 'First step', desc: 'Log your first study block', goal: 1, val: (m) => m.sessions },
@@ -413,6 +413,9 @@ const ACHIEVEMENTS = [
   { id: 'streak_14', cat: 'consistency', tier: 3, icon: 'fire', name: 'Two weeks', desc: '14-day streak', goal: 14, val: (m) => m.streak },
   { id: 'streak_30', cat: 'consistency', tier: 4, icon: 'bolt', name: 'A month of it', desc: '30-day streak', goal: 30, val: (m) => m.streak },
   { id: 'streak_100', cat: 'consistency', tier: 5, icon: 'queen', name: 'One hundred days', desc: '100-day streak', goal: 100, val: (m) => m.streak },
+  { id: 'closed_10', cat: 'consistency', tier: 2, icon: 'check', name: 'Tidy desk', desc: 'Close 10 days', goal: 10, val: (m) => m.closed },
+  { id: 'closed_50', cat: 'consistency', tier: 3, icon: 'check', name: 'Clean slate', desc: 'Close 50 days', goal: 50, val: (m) => m.closed },
+  { id: 'closed_200', cat: 'consistency', tier: 5, icon: 'calendar', name: 'Bookkeeper', desc: 'Close 200 days', goal: 200, val: (m) => m.closed },
   { id: 'hours_5', cat: 'volume', tier: 1, icon: 'clock', name: '5 hours', desc: '5 hours of net study', goal: 300, val: (m) => m.minutes },
   { id: 'hours_10', cat: 'volume', tier: 1, icon: 'clock', name: '10 hours', desc: '10 hours of net study', goal: 600, val: (m) => m.minutes },
   { id: 'hours_25', cat: 'volume', tier: 2, icon: 'clock', name: '25 hours', desc: '25 hours of net study', goal: 1500, val: (m) => m.minutes },
@@ -421,12 +424,14 @@ const ACHIEVEMENTS = [
   { id: 'hours_250', cat: 'volume', tier: 4, icon: 'award', name: '250 hours', desc: '250 hours of net study', goal: 15000, val: (m) => m.minutes },
   { id: 'hours_500', cat: 'volume', tier: 4, icon: 'award', name: '500 hours', desc: '500 hours of net study', goal: 30000, val: (m) => m.minutes },
   { id: 'hours_1000', cat: 'volume', tier: 5, icon: 'queen', name: '1000 hours', desc: '1000 hours of net study', goal: 60000, val: (m) => m.minutes },
+  { id: 'hours_2000', cat: 'volume', tier: 5, icon: 'king', name: '2000 hours', desc: '2000 hours of net study', goal: 120000, val: (m) => m.minutes },
   { id: 'sess_10', cat: 'sessions', tier: 1, icon: 'rook', name: '10 blocks', desc: 'Log 10 blocks', goal: 10, val: (m) => m.sessions },
   { id: 'sess_25', cat: 'sessions', tier: 1, icon: 'rook', name: '25 blocks', desc: 'Log 25 blocks', goal: 25, val: (m) => m.sessions },
   { id: 'sess_50', cat: 'sessions', tier: 2, icon: 'knight', name: '50 blocks', desc: 'Log 50 blocks', goal: 50, val: (m) => m.sessions },
   { id: 'sess_100', cat: 'sessions', tier: 3, icon: 'knight', name: '100 blocks', desc: 'Log 100 blocks', goal: 100, val: (m) => m.sessions },
   { id: 'sess_250', cat: 'sessions', tier: 4, icon: 'rook', name: '250 blocks', desc: 'Log 250 blocks', goal: 250, val: (m) => m.sessions },
   { id: 'sess_500', cat: 'sessions', tier: 5, icon: 'queen', name: '500 blocks', desc: 'Log 500 blocks', goal: 500, val: (m) => m.sessions },
+  { id: 'sess_1000', cat: 'sessions', tier: 5, icon: 'king', name: '1000 blocks', desc: 'Log 1000 blocks', goal: 1000, val: (m) => m.sessions },
   { id: 'mission_1', cat: 'missions', tier: 1, icon: 'focus', name: 'Mission accomplished', desc: 'Finish a mission', goal: 1, val: (m) => m.missions },
   { id: 'mission_5', cat: 'missions', tier: 2, icon: 'focus', name: 'Five missions', desc: 'Finish 5 missions', goal: 5, val: (m) => m.missions },
   { id: 'mission_10', cat: 'missions', tier: 3, icon: 'award', name: 'Ten missions', desc: 'Finish 10 missions', goal: 10, val: (m) => m.missions },
@@ -438,6 +443,7 @@ const ACHIEVEMENTS = [
   { id: 'med_1', cat: 'meditation', tier: 1, icon: 'brain', name: 'First breath', desc: 'Finish your first meditation', goal: 1, val: (m) => m.medCount },
   { id: 'med_10', cat: 'meditation', tier: 2, icon: 'brain', name: 'Ten sessions', desc: 'Finish 10 meditations', goal: 10, val: (m) => m.medCount },
   { id: 'med_50', cat: 'meditation', tier: 3, icon: 'lightbulb', name: 'Fifty sessions', desc: 'Finish 50 meditations', goal: 50, val: (m) => m.medCount },
+  { id: 'med_100', cat: 'meditation', tier: 4, icon: 'lightbulb', name: 'A hundred sessions', desc: 'Finish 100 meditations', goal: 100, val: (m) => m.medCount },
   { id: 'med_streak_7', cat: 'meditation', tier: 3, icon: 'fire', name: 'A week of calm', desc: 'Meditate 7 days in a row', goal: 7, val: (m) => m.medStreak },
   { id: 'med_streak_30', cat: 'meditation', tier: 5, icon: 'queen', name: 'A month of calm', desc: 'Meditate 30 days in a row', goal: 30, val: (m) => m.medStreak },
   { id: 'med_min_60', cat: 'meditation', tier: 2, icon: 'clock', name: 'One hour of breathing', desc: '60 minutes of meditation', goal: 60, val: (m) => m.medMinutes },
@@ -446,14 +452,20 @@ const ACHIEVEMENTS = [
   { id: 'med_before_study', cat: 'meditation', tier: 3, icon: 'focus', name: 'Clear head', desc: 'Meditate and study on the same day, 10 times', goal: 10, val: (m) => m.medWithStudy, hidden: true },
   { id: 'week_full', cat: 'special', tier: 3, icon: 'calendar', name: 'Full week', desc: '7 days in a row above the daily minimum', goal: 7, val: (m) => m.bestWeekRun },
   { id: 'tournament_1', cat: 'special', tier: 2, icon: 'flag', name: 'Tournament day', desc: 'Mark your first tournament day', goal: 1, val: (m) => m.tournaments },
+  { id: 'tournament_5', cat: 'special', tier: 3, icon: 'flag', name: 'Five tournaments', desc: 'Mark 5 tournament days', goal: 5, val: (m) => m.tournaments },
+  { id: 'tournament_20', cat: 'special', tier: 4, icon: 'swords', name: 'Road warrior', desc: 'Mark 20 tournament days', goal: 20, val: (m) => m.tournaments },
   { id: 'long_2h', cat: 'special', tier: 2, icon: 'brain', name: 'Two hours straight', desc: 'A single block of 2 hours or more', goal: 120, val: (m) => m.longest },
   { id: 'focus_1', cat: 'special', tier: 1, icon: 'star', name: 'In the zone', desc: 'Rate a block as focused', goal: 1, val: (m) => m.focused },
   { id: 'focus_20', cat: 'special', tier: 3, icon: 'focus', name: 'Deep work', desc: '20 blocks rated as focused', goal: 20, val: (m) => m.focused },
+  { id: 'focus_50', cat: 'special', tier: 4, icon: 'focus', name: 'Flow', desc: '50 blocks rated as focused', goal: 50, val: (m) => m.focused },
+  { id: 'focus_100', cat: 'special', tier: 5, icon: 'star', name: 'Laser focus', desc: '100 blocks rated as focused', goal: 100, val: (m) => m.focused },
   { id: 'themes_5', cat: 'special', tier: 2, icon: 'lightbulb', name: 'All-rounder', desc: 'Study 5 different themes', goal: 5, val: (m) => m.themes },
   { id: 'early_bird', cat: 'special', tier: 3, icon: 'eye', name: 'Early bird', desc: '5 blocks started before 8am', goal: 5, val: (m) => m.early, hidden: true },
   { id: 'night_owl', cat: 'special', tier: 3, icon: 'eye-off', name: 'Night owl', desc: '5 blocks started after 10pm', goal: 5, val: (m) => m.late, hidden: true },
   { id: 'marathon', cat: 'special', tier: 4, icon: 'knight', name: 'Marathon', desc: 'A single block of 4 hours or more', goal: 240, val: (m) => m.longest, hidden: true },
   { id: 'comeback', cat: 'special', tier: 3, icon: 'refresh', name: 'Back on track', desc: 'Study again after a two-week gap', goal: 1, val: (m) => m.comeback, hidden: true },
+  { id: 'collector_10', cat: 'rooms', tier: 2, icon: 'star', name: 'Collector', desc: 'Buy 10 things for your rooms', goal: 10, val: (m) => m.bought },
+  { id: 'collector_50', cat: 'rooms', tier: 4, icon: 'award', name: 'Curator', desc: 'Buy 50 things for your rooms', goal: 50, val: (m) => m.bought },
 ];
 const Achievements = {
   metrics() {
@@ -476,6 +488,8 @@ const Achievements = {
       focused: sessions.filter((s) => s.meta?.rating === 'focused').length,
       themes: new Set(sessions.map((s) => s.theme).filter(Boolean)).size,
       early: hours.filter((h) => h < 8).length, late: hours.filter((h) => h >= 22).length, comeback,
+      closed: (() => { const set = new Set(Object.entries(state.days.entries || {}).filter(([, e]) => e && e.status === 'closed').map(([k]) => k)); (state.settings.locked_days || []).forEach((k) => { if (!state.days.entries?.[k]) set.add(k); }); return set.size; })(),
+      bought: (state.room.owned || []).filter((o) => (+o.price || 0) > 0).length,
       ...(() => {
         const med = sessions.filter((x) => x.meta?.type === 'meditation');
         const medDays = new Set(med.map((x) => dayKeyOf(ms(x.started_at))));

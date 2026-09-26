@@ -40,6 +40,8 @@ const App = {
     // achievements are evaluated on real events, not on every render
     on('sessions', debounce(() => Achievements.check('SESSION_COMPLETED'), 800));
     on('missions', debounce(() => Achievements.check('MISSION_COMPLETED'), 800));
+    on('days', debounce(() => Achievements.check('DAY_CLOSED'), 800));
+    on('room', debounce(() => Achievements.check('ROOM'), 800));
     setTimeout(() => Achievements.check('BOOT'), 1500);
     this.dailyQuote();
     setTimeout(() => this.meditationReminder(), 2500);

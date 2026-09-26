@@ -6,9 +6,12 @@
    without it every pull downloads everything, as before. */
 const SYNC_TABLE = 'study_records';
 const DOC_IDS = ['settings', 'days', 'room'];
-const SETTINGS_FOREIGN = ['entries', 'since', 'owned', 'placed', 'style']; // keys an older app version may have mixed in
+const SETTINGS_FOREIGN = ['entries', 'since', 'owned', 'placed', 'style', 'styles', 'avatar']; // keys an older app version may have mixed in
 const jeq = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 const maxIso = (a, b) => ((a || '') > (b || '') ? a : b) || null;
+/* content equality that ignores key order (the database may reorder keys) and the document's own timestamp */
+const canon = (v) => (Array.isArray(v) ? `[${v.map(canon).join(',')}]` : v && typeof v === 'object' ? `{${Object.keys(v).filter((k) => v[k] !== undefined).sort().map((k) => JSON.stringify(k) + ':' + canon(v[k])).join(',')}}` : JSON.stringify(v ?? null));
+const sameDoc = (a, b) => canon({ ...a, updated_at: null }) === canon({ ...b, updated_at: null });
 
 /* ---- merges ---- */
 function mergeListById(L, R, B) { // 3-way when a base is known: deletions on either side stick
@@ -57,12 +60,22 @@ function mergeRoomDoc(local, remote) {
   const owned = mergeListById((local.owned || []).map((o) => ({ ...o, id: o.uid })), (remote.owned || []).map((o) => ({ ...o, id: o.uid })), null).map(({ id, ...o }) => o);
   const placed = { ...(local.placed || {}) };
   for (const [k, p] of Object.entries(remote.placed || {})) if (!placed[k] || (p.at || '') > (placed[k].at || '')) placed[k] = p;
-  const style = {}; // wall and floor are merged on their own
-  for (const k of ['wall', 'floor']) {
-    const L = local.style || {}, R = remote.style || {}; const la = L[k + '_at'] || L.at || '', ra = R[k + '_at'] || R.at || '';
-    const src = ra > la ? R : L; if (src[k]) { style[k] = src[k]; style[k + '_at'] = src[k + '_at'] || src.at || null; }
-  }
-  return { ...local, owned, placed, style, starter: !!(local.starter || remote.starter), updated_at: maxIso(local.updated_at, remote.updated_at) };
+  const mergeStyle = (L = {}, R = {}) => { // wall and floor are merged on their own
+    const out = {};
+    for (const k of ['wall', 'floor']) {
+      const la = L[k + '_at'] || L.at || '', ra = R[k + '_at'] || R.at || '';
+      const src = ra > la ? R : L; if (src[k]) { out[k] = src[k]; out[k + '_at'] = src[k + '_at'] || src.at || null; }
+    }
+    return out;
+  };
+  const style = mergeStyle(local.style, remote.style);
+  const styles = {}; // the other rooms, each merged the same way
+  for (const rid of new Set([...Object.keys(local.styles || {}), ...Object.keys(remote.styles || {})])) styles[rid] = mergeStyle((local.styles || {})[rid], (remote.styles || {})[rid]);
+  const la = local.avatar?.at || '', ra = remote.avatar?.at || '';
+  const avatar = ra > la ? remote.avatar : local.avatar || remote.avatar || null;
+  const out = { ...remote, ...local, owned, placed, style, styles, starter: !!(local.starter || remote.starter), updated_at: maxIso(local.updated_at, remote.updated_at) };
+  if (avatar) out.avatar = avatar;
+  return out;
 }
 
 const Sync = {
@@ -126,7 +139,12 @@ const Sync = {
       return JSON.stringify(state.settings) !== before;
     }
     if (id === 'days') { const before = JSON.stringify(state.days); state.days = mergeDaysDoc(state.days, remote); return JSON.stringify(state.days) !== before; }
-    if (id === 'room') { const before = JSON.stringify(state.room); state.room = mergeRoomDoc(state.room, remote); return JSON.stringify(state.room) !== before; }
+    if (id === 'room') {
+      const before = JSON.stringify(state.room); state.room = mergeRoomDoc(state.room, remote);
+      // the room only ever grows (purchases, newest placements): if the server copy lacks something this device has, send it back
+      if (!localDirty && !sameDoc(state.room, remote)) dirty('settings', 'room');
+      return JSON.stringify(state.room) !== before;
+    }
     return false;
   },
   /* Read-merge-write for documents: what another device saved in the meantime is kept. */

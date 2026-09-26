@@ -35,6 +35,8 @@ function logNow(mins) {
 
 /* A small gold coin, used wherever credits show up. */
 function coinIcon(cls = '') {
+  const art = typeof ROOM_ART !== 'undefined' && ROOM_ART.sprites && ROOM_ART.sprites.coin; // the Canva coin
+  if (art) return h('span', { class: 'coin ' + cls, 'aria-hidden': 'true', html: `<img src="${assetUrl(`assets/room/${art[0]}.png?v=${ROOM_ART.v}`)}" alt="" width="100%" height="100%" style="display:block;object-fit:contain">` });
   return h('span', { class: 'coin ' + cls, 'aria-hidden': 'true', html: '<svg viewBox="0 0 20 20" width="100%" height="100%"><circle cx="10" cy="10" r="9" fill="#f5c542"/><circle cx="10" cy="10" r="9" fill="none" stroke="#b7791f" stroke-width="1.4"/><circle cx="10" cy="10" r="6.2" fill="none" stroke="#d69e2e" stroke-width="1.1"/><path d="M10 5.6l1.3 2.7 3 .4-2.2 2.1.5 2.9L10 12.3l-2.6 1.4.5-2.9-2.2-2.1 3-.4z" fill="#b7791f"/></svg>' });
 }
 const creditText = (n) => `${n > 0 ? '+' : ''}${fmtNum(n)} credit${Math.abs(n) === 1 ? '' : 's'}`;

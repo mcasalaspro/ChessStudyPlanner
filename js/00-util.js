@@ -91,7 +91,7 @@ function icon(name, cls = '') {
   if (def) el.innerHTML = `<svg viewBox="${def.v}" width="100%" height="100%" fill="none" focusable="false">${def.p}</svg>`;
   return el;
 }
-function art(name, cls = '') { return h('img', { class: 'art ' + cls, src: assetUrl(`assets/ui/chess/${name}.svg`), alt: '', loading: 'lazy' }); }
+function art(name, cls = '') { const png = typeof ROOM_ART !== 'undefined' && ROOM_ART.ui && ROOM_ART.ui[name]; return h('img', { class: 'art ' + cls, src: assetUrl(png ? `assets/ui/chess/${name}.png?v=${ROOM_ART.v}` : `assets/ui/chess/${name}.svg`), alt: '', loading: 'lazy' }); }
 
 /* ===== Colors ===== */
 function hexToRgb(hex) { const m = /^#?([0-9a-f]{6})$/i.exec(hex || ''); if (!m) return { r: 120, g: 120, b: 120 }; const v = parseInt(m[1], 16); return { r: v >> 16, g: (v >> 8) & 255, b: v & 255 }; }

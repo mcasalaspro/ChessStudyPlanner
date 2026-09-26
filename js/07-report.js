@@ -89,6 +89,7 @@ const ReportView = {
     const bars = h('div', { class: 'mbars', style: { '--n': data.length } }, ...data.map((m) => {
       const segs = themes().map((th) => [th.color, m.byTheme.get(th.id) || 0]).filter(([, v]) => v > 0);
       const none = m.byTheme.get('__none') || 0; if (none) segs.push(['#8a9bb3', none]);
+      const tourn = m.byTheme.get('tournament') || 0; if (tourn) segs.push([TOURNAMENT_THEME.color, tourn]);
       return h('div', { class: 'mbar' + (m.total ? '' : ' empty') },
         h('div', { class: 'stack-col' }, h('span', { class: 'mval num' }, m.total ? fmtHM(m.total) : ''),
           h('div', { class: 'col', style: { height: (m.total / max) * 100 + '%' } }, ...segs.map(([c, v]) => h('i', { style: { flex: v, background: c } })))),

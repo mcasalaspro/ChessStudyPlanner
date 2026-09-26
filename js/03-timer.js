@@ -4,31 +4,20 @@ const Timer = {
   _tick: null, _hb: null, _remindedPause: null, _breakNotified: 0, _favState: null, _favBlink: false,
   status() { const r = runningSession(); if (!r) return 'idle'; return openPause(r) ? 'paused' : 'running'; },
 
+  /* Starts a block now. A block that is still open is closed at this same instant (returned as `closed`,
+     so the caller can ask how it went) — two blocks never run over each other. */
   start(theme, { free = false } = {}) {
-    if (runningSession()) throw new Error('A block is already running.');
-    const nowN = Math.round(nowMs()); const now = iso(nowN);
-    // A block planned in advance that covers "now" (or starts within 15 min) is adopted by the timer instead of conflicting with it.
-    // A block planned for right now can be adopted — but never one that started long ago
-    // (that used to reopen a block already finished hours earlier).
-    const planned = state.sessions.find((x) => isLive(x) && x.ended_at && !isTournament(x) && !sessionLocked(x)
-      && !(x.pauses || []).length && x.source === 'manual' && !x.meta?.adopted
-      && ms(x.started_at) > ms(x.created_at) + 5 * MIN
-      && ms(x.started_at) >= nowN - 5 * MIN && ms(x.started_at) <= nowN + 15 * MIN
-      && ms(x.ended_at) > nowN);
-    let s;
-    if (planned) {
-      s = planned; s.started_at = now; s.ended_at = null; s.pauses = []; s.source = 'timer'; s.meta = { ...(s.meta || {}), last_seen_at: now, planned: true, adopted: true, free }; s.updated_at = iso(Date.now());
-      if (theme) s.theme = theme;
-    } else {
-      s = newSessionObj({ theme: theme || state.settings.last_theme || null, started_at: now, ended_at: null, source: 'timer', meta: { last_seen_at: now, free } });
-      state.sessions.push(s);
-    }
+    const closed = runningSession() ? this.stop() : null;
+    const nowN = Math.round(nowMs()); const now = iso(Math.max(nowN, closed ? ms(closed.ended_at) : 0));
+    if (isDayLocked(todayKey())) setDayEntry(todayKey(), { status: 'open', closed_at: null }, { silent: true }); // studying again: today reopens
+    const s = newSessionObj({ theme: theme || state.settings.last_theme || null, started_at: now, ended_at: null, source: 'timer', meta: { last_seen_at: now, free, device: DEVICE_ID } });
+    state.sessions.push(s);
     if (s.theme) state.settings.last_theme = s.theme;
     if (free && state.settings.target_min) updateSettings({ target_min: null });
     this._breakNotified = 0;
     dirty('session', s.id); commit('timer', { status: 'running' });
     this.ensureLoops();
-    return s;
+    return { session: s, closed };
   },
   pause() {
     const r = runningSession(); if (!r || openPause(r)) return;
@@ -110,26 +99,38 @@ const Timer = {
       : `The timer was left running with no sign of activity. The block was closed where it stopped: ${fmtDayShort(dayKeyOf(end))} at ${hm(end)}.`;
     showBanner('autoclosed-' + r.id, { text: msg, warn: true, actions: [{ label: 'Reopen / adjust', primary: true, onClick: () => { hideBanner('autoclosed-' + r.id); Panel.editSession(r.id); } }] });
   },
-  heartbeat() {
-    const r = runningSession(); if (!r) return;
+  /* Keeps the running block alive. Only the device that started it does this; before writing, it checks
+     whether the block was stopped or changed on another device and follows that instead. */
+  async heartbeat({ local = false } = {}) {
+    const r = runningSession(); if (!r || !ownsRun(r)) return;
     r.meta = { ...(r.meta || {}), last_seen_at: iso(Math.round(nowMs())) };
-    persist(); dirty('session', r.id);
+    if (local) { persist(); return; } // the page is closing: just remember when
+    const remote = await Sync.peek('session', r.id);
+    const cur = sessionById(r.id); if (!cur) return;
+    if (remote && (remote.updated_at || '') > (cur.updated_at || '')) {
+      Object.assign(cur, remote); persist(); emit('timer', { status: this.status() }); emit('change');
+      if (remote.ended_at || remote.deleted_at) toast('This block was stopped on another device');
+      return;
+    }
+    if (cur.ended_at || cur.deleted_at) return;
+    cur.updated_at = iso(Date.now()); persist(); dirty('session', cur.id);
   },
   hydrate() {
     const r = runningSession();
     if (!r) { this.updateChrome(); return; }
+    if (!ownsRun(r)) { this.ensureLoops(); this.updateChrome(); return; } // running on another device: only shown here
     const lastSeen = r.meta?.last_seen_at ? ms(r.meta.last_seen_at) : ms(r.started_at);
     const now = nowMs(), gap = now - lastSeen;
     const op = openPause(r);
     if (op && now - ms(op.start) > state.settings.pause_autostop_min * MIN) { this.autoClose(r, ms(op.start), 'pause'); return; }
-    if (gap > 6 * HOUR || dayKeyOf(ms(r.started_at)) !== todayKey()) { this.autoClose(r, lastSeen, 'idle'); return; }
+    if (gap > 6 * HOUR || now - ms(r.started_at) > 16 * HOUR) { this.autoClose(r, lastSeen, 'idle'); return; }
     if (gap > 3 * MIN) {
       const id = 'absence';
       showBanner(id, {
         text: `Were you really studying until now? The app has been closed since ${fmtDayShort(dayKeyOf(lastSeen))} ${hm(lastSeen)}.`, warn: true,
         actions: [
           { label: 'Yes, keep going', primary: true, onClick: () => { hideBanner(id); this.heartbeat(); } },
-          { label: 'Stop when I left', onClick: () => { hideBanner(id); const s = this.stop(lastSeen); if (s) Panel.closeSession(s.id); } },
+          { label: 'Stop when I left', onClick: () => { hideBanner(id); const s = this.stop(lastSeen); if (s) FocusCheck.ask(s.id); } },
         ],
       });
     }
@@ -143,6 +144,7 @@ const Timer = {
   tick() {
     const r = runningSession();
     if (!r) { if (this._tick) { clearInterval(this._tick); this._tick = null; } if (this._hb) { clearInterval(this._hb); this._hb = null; } this.updateChrome(); emit('tick'); return; }
+    if (!ownsRun(r)) { this.updateChrome(); emit('tick'); return; } // the device that started it runs breaks and targets
     const op = openPause(r);
     if (op) {
       // guided break: resume by itself when the break time is over
@@ -168,7 +170,7 @@ const Timer = {
       if (target > 0 && sessionTimes(r).net >= target * MIN) {
         const stopped = this.stop();
         updateSettings({ target_min: null });
-        if (stopped) { const msg = `Target of ${fmtHM(target)} reached — block stopped.`; toast(msg, { duration: 8000 }); notify(msg); Panel.closeSession(stopped.id); }
+        if (stopped) { const msg = `Target of ${fmtHM(target)} reached — block stopped.`; notify(msg); if (Focus.isOpen()) Focus.close(); FocusCheck.ask(stopped.id, { reason: 'target', note: msg }); }
         return;
       }
       // break reminder every N net minutes — guided breaks pause and resume by themselves

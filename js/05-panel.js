@@ -26,11 +26,11 @@ const Panel = {
       const pauseIn = h('input', { type: 'number', min: 0, max: 900, value: Math.round(tm.pauseMs / MIN), disabled: live || locked });
       const compute = (anchor) => {
         const [y, m, d] = dateIn.value.split('-').map(Number); const [sh, sm] = startIn.value.split(':').map(Number);
-        if (!y || Number.isNaN(sh)) return null;
+        if (!y || !Number.isFinite(sh) || !Number.isFinite(sm)) return null; // a cleared field changes nothing
         const start = new Date(y, m - 1, d, sh, sm).getTime();
         let end;
         if (live) end = null;
-        else if (anchor === 'end') { const [eh, em] = endIn.value.split(':').map(Number); end = new Date(y, m - 1, d, eh, em).getTime(); if (end <= start) end += DAY; }
+        else if (anchor === 'end') { const [eh, em] = endIn.value.split(':').map(Number); if (!Number.isFinite(eh) || !Number.isFinite(em)) return null; end = new Date(y, m - 1, d, eh, em).getTime(); if (end <= start) end += DAY; }
         else end = start + Math.max(1, +durIn.value || 1) * MIN;
         return { start, end };
       };
@@ -77,9 +77,8 @@ const Panel = {
       const rateRow = h('div', { class: 'field' }, h('span', null, 'How did it go?'), h('div', { class: 'rate-row' }, ...RATINGS.map(rateBtn)));
       const actions = h('div', { class: 'row', style: { marginTop: '6px' } },
         closing ? h('button', { class: 'btn primary', onClick: () => Drawer.close() }, 'Save') : null,
-        closing ? h('button', { class: 'btn', onClick: () => { Drawer.close(); try { Timer.start(s.theme); } catch (e) { toast(e.message, { error: true }); } } }, 'Save and start another') : null,
-        !live && !closing ? h('button', { class: 'btn', onClick: () => { const r = duplicateSessionTomorrow(id); if (r?.errors) showErrors(r.errors); else toastUndo('Block duplicated to tomorrow'); } }, 'Duplicate to tomorrow') : null,
-        live ? h('button', { class: 'btn', onClick: () => { Drawer.close(); const st = Timer.stop(); if (st) Panel.closeSession(st.id); } }, '■ Stop now') : null,
+        closing ? h('button', { class: 'btn', onClick: () => { Drawer.close(); startBlock(s.theme); } }, 'Save and start another') : null,
+        live ? h('button', { class: 'btn', onClick: () => { Drawer.close(); stopBlock(); } }, '■ Stop now') : null,
         locked ? null : h('button', { class: 'btn danger', onClick: async () => { if ((closing && tm.net < 60000) || await confirmDialog('Delete this block?', { danger: true, okLabel: 'Delete' })) { deleteSession(id); Drawer.close(); toastUndo(closing ? 'Block discarded' : 'Block deleted'); } } }, closing ? 'Discard' : 'Delete'));
       setKids(body, summary, shortHint, lockNote,
         h('div', { class: 'field' }, h('span', null, 'Theme'), chips),
@@ -106,15 +105,17 @@ const Panel = {
     const build = () => {
       const list = state.sessions.filter((s) => isLive(s) && sliceSession(s).some((sl) => sl.day === key)).sort((a, b) => a.started_at.localeCompare(b.started_at));
       const total = netByDay(key, key).get(key)?.net || 0;
-      const closed = isDayLocked(key);
+      const closed = isDayLocked(key); const tk = todayKey(); const e = dayEntry(key) || {};
+      const typeLbl = { rest: 'Rest day', travel: 'Travel day', recovery: 'Recovery day', skipped: 'Skipped' }[e.type];
       setKids(body,
         h('div', { class: 'row between' }, h('span', { class: 'muted' }, list.length ? `${list.length} block${list.length > 1 ? 's' : ''}` : 'No blocks on this day'), h('b', null, fmtHM(total / MIN))),
-        h('div', { class: 'lock-row' + (closed ? ' on' : '') },
-          h('span', { class: 'grow small' }, closed ? '🔒 Day closed — blocks are protected from moves and deletes.' : 'Finished for the day? Close it to protect these blocks.'),
-          h('button', { class: 'btn sm' + (closed ? '' : ' primary'), onClick: () => { setDayLocked(key, !closed); toast(closed ? 'Day reopened' : 'Day closed'); } }, closed ? 'Reopen' : '🔒 Finish day')),
-        ...list.map((s) => { const tm = sessionTimes(s); return h('button', { class: 'block-row', style: { '--c': themeColor(s.theme) }, onClick: () => Panel.editSession(s.id) }, h('i', { class: 'bar' }), h('span', { class: 'grow' }, h('b', null, themeName(s.theme)), s.note_md ? noteIcon() : null, h('span', { class: 'muted small' }, ' ', s.ended_at ? fmtRange(tm.start, tm.end) : `${hm(tm.start)} – running`)), h('span', { class: 'num' }, fmtHM(tm.net / MIN))); }),
-        closed ? null : h('div', { class: 'row preset-row' }, h('span', { class: 'muted small' }, 'Add block:'),
-          ...DURATION_PRESETS.map(([mins, label]) => h('button', { class: 'btn sm', onClick: () => { const now = new Date(nowMs()); const start = dayMs(key, key === todayKey() ? Math.floor((now.getHours() * 60 + now.getMinutes()) / 15) * 15 : 19 * 60); Calendar.createAt(start, mins); } }, label))));
+        key > tk ? h('p', { class: 'hint' }, 'This day has not happened yet — blocks are logged once they happen.') : h('div', { class: 'lock-row' + (closed ? ' on' : '') },
+          h('span', { class: 'grow small' }, closed ? `🔒 Day closed${typeLbl ? ` · ${typeLbl}` : ''}${e.score ? ` · rated ${e.score}/5` : ''} — blocks are protected from moves and deletes.` : 'Finished for the day? Close it: confirm the blocks and see a short summary.'),
+          h('button', { class: 'btn sm' + (closed ? '' : ' primary'), onClick: () => { if (closed) { setDayLocked(key, false); toast('Day reopened'); } else DayClose.run([key], { manual: true }); } }, closed ? 'Reopen' : '🔒 Finish day')),
+        e.note ? h('p', { class: 'muted small italic' }, `“${e.note}”`) : null,
+        ...list.map((s) => { const tm = sessionTimes(s); const t = isTournament(s); return h('button', { class: 'block-row', style: { '--c': t ? TOURNAMENT_THEME.color : themeColor(s.theme) }, onClick: () => (t ? Tournament.edit(s.id) : Panel.editSession(s.id)) }, h('i', { class: 'bar' }), h('span', { class: 'grow' }, h('b', null, t ? s.meta?.tournament_name || 'Tournament' : themeName(s.theme)), s.note_md ? noteIcon() : null, h('span', { class: 'muted small' }, ' ', s.ended_at ? fmtRange(tm.start, tm.end) : `${hm(tm.start)} – running`)), s.meta?.rating ? h('i', { class: 'fdot ' + s.meta.rating, title: s.meta.rating }) : null, h('span', { class: 'num' }, fmtHM(tm.net / MIN))); }),
+        closed || key > tk ? null : h('div', { class: 'row preset-row' }, h('span', { class: 'muted small' }, key === tk ? 'Log a block that just ended:' : 'Log a forgotten block (evening):'),
+          ...DURATION_PRESETS.map(([mins, label]) => h('button', { class: 'btn sm', onClick: () => { if (key === tk) logNow(mins); else Calendar.createAt(dayMs(key, 19 * 60), mins); } }, label))));
     };
     build(); Drawer.open(fmtDayLong(key), body, 'day:' + key);
     const off = on('change', () => { if (!Drawer.isOpen('day:' + key)) { off(); return; } build(); });
@@ -163,14 +164,13 @@ const Panel = {
       h('label', { class: 'field inline' }, h('span', null, 'Break length (min)'), h('select', { style: { width: 'auto' }, onChange: (e) => updateSettings({ break_len_min: +e.target.value }) }, ...[10, 15, 30].map((v) => h('option', { value: v, selected: v === (s.break_len_min || 15) }, v)))),
       num('Close a forgotten break after (min)', 'pause_autostop_min', 5, 600), num('Daily minimum for the streak (min)', 'streak_min_min', 1, 600),
       h('label', { class: 'field inline' }, h('span', null, 'Sound on break reminder and stop'), h('input', { type: 'checkbox', class: 'switch', checked: !!s.sound, onChange: (e) => updateSettings({ sound: e.target.checked }) })), notifRow,
-      h('label', { class: 'field inline' }, h('span', null, 'Remind me to meditate'), h('input', { type: 'checkbox', class: 'switch', checked: s.med_reminder !== false, onChange: (e) => updateSettings({ med_reminder: e.target.checked }) })),
+      h('h3', null, 'Meditation habit'),
+      h('label', { class: 'field inline' }, h('span', null, 'Days per week'), h('select', { style: { width: 'auto' }, onChange: (e) => updateSettings({ med_goal_days: +e.target.value }) }, ...[1, 2, 3, 4, 5, 6, 7].map((v) => h('option', { value: v, selected: v === medGoal() }, v)))),
+      h('label', { class: 'field inline' }, h('span', null, 'Remind me when today has no meditation'), h('input', { type: 'checkbox', class: 'switch', checked: s.med_reminder !== false, onChange: (e) => updateSettings({ med_reminder: e.target.checked }) })),
       h('h3', null, 'Calendar'),
       num('Length when clicking an empty slot (min)', 'default_len_min', 5, 480),
-      h('label', { class: 'field inline' }, h('span', null, 'Freeze night hours (bedtime)'), h('input', { type: 'checkbox', class: 'switch', checked: !!s.night_freeze, onChange: (e) => { updateSettings({ night_freeze: e.target.checked }); Panel.settings(); } })),
-      s.night_freeze ? h('div', { class: 'row', style: { justifyContent: 'flex-end', gap: '6px' } }, h('span', { class: 'muted small' }, 'from'),
-        h('input', { type: 'time', value: s.night_from || '23:00', step: 900, onChange: (e) => updateSettings({ night_from: e.target.value || '23:00' }) }), h('span', { class: 'muted small' }, 'to'),
-        h('input', { type: 'time', value: s.night_to || '07:00', step: 900, onChange: (e) => updateSettings({ night_to: e.target.value || '07:00' }) })) : null,
-      s.night_freeze ? h('p', { class: 'muted small' }, 'Those hours are greyed out on the timeline and no new block can be created there.') : null,
+      h('label', { class: 'field inline' }, h('span', null, 'Late study starts at'), h('input', { type: 'time', value: s.late_from || '23:00', step: 900, onChange: (e) => updateSettings({ late_from: e.target.value || '23:00' }) })),
+      h('p', { class: 'muted small' }, 'Study after this hour (or before 5 am) is pointed out in the day summary and the weekly review — just noted, never counted against you.'),
       h('label', { class: 'field inline' }, h('span', null, 'Snap (min)'), h('select', { style: { width: 'auto' }, onChange: (e) => updateSettings({ snap_min: +e.target.value }) }, ...[5, 10, 15, 30].map((v) => h('option', { value: v, selected: v === s.snap_min }, v)))),
       h('label', { class: 'field inline' }, h('span', null, 'Announce new achievements'), h('input', { type: 'checkbox', class: 'switch', checked: s.ach_feedback !== false, onChange: (e) => updateSettings({ ach_feedback: e.target.checked }) })),
       h('h3', null, 'Appearance'),
@@ -194,6 +194,9 @@ const Panel = {
       h('label', { class: 'field inline' }, h('span', null, 'Background animation'), h('select', { style: { width: 'auto' }, onChange: (e) => updateSettings({ focus_anim: e.target.value }) }, ...[['aurora', 'Aurora'], ['ondas', 'Waves'], ['estrelas', 'Stars'], ['nenhuma', 'None']].map(([v, l]) => h('option', { value: v, selected: v === s.focus_anim }, l)))),
       h('h3', null, 'Your data'),
       h('p', { class: 'muted small' }, `Synced to your account (${Auth.user?.email || ''}). Only you can see your blocks.`),
+      Sync.srv === true ? h('p', { class: 'muted small' }, '✓ Fast sync: only what changed is downloaded.')
+        : Sync.srv === false ? h('p', { class: 'hint warn' }, 'Full sync: every check downloads everything. Run the database update (supabase/update-2-sync.sql) once to download only the changes.') : null,
+      Store.full ? h('p', { class: 'hint warn' }, 'This browser is out of space for the offline copy — your data is still saved online.') : null,
       h('div', { class: 'row' }, h('button', { class: 'btn sm', onClick: () => exportCsv(activeSessions()) }, '⬇ CSV'), h('button', { class: 'btn sm', onClick: () => exportJson() }, '⬇ JSON backup'), h('button', { class: 'btn sm', onClick: () => importInput.click() }, '⬆ Import JSON'), importInput),
       h('div', { class: 'row', style: { marginTop: '8px' } },
         h('button', { class: 'btn sm ghost', onClick: async () => { if (await confirmDialog('Add sample data (35 days of fictitious blocks)? You can delete it afterwards.')) { seedSampleData(); toast('Sample data added'); } } }, 'Sample data'),

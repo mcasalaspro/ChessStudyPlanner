@@ -71,7 +71,12 @@ const Meditation = {
 
   /* ---------- chooser ---------- */
   open(quickMinutes) {
-    if (runningSession()) { toast('Stop the running block first', { error: true }); return; }
+    const r = runningSession();
+    if (r) { // one block at a time: meditating closes the study block that is still open
+      confirmDialog(`${themeName(r.theme)} is still running (${fmtHM(sessionTimes(r).net / MIN)}). Close it and meditate? The meditation is logged as its own block.`, { okLabel: 'Close it and meditate' })
+        .then((ok) => { if (!ok) return; const s = Timer.stop(); if (s) FocusCheck.ask(s.id, { reason: 'switched', then: () => this.open(quickMinutes) }); else this.open(quickMinutes); });
+      return;
+    }
     if (quickMinutes) { this.start(this.patternById(state.settings.med_pattern || '46'), quickMinutes); return; }
     let pick = this.patternById(state.settings.med_pattern || '46');
     let minutes = state.settings.med_minutes || 5;
@@ -369,7 +374,7 @@ const Meditation = {
           h('div', null, h('b', null, meta.holds ? `${meta.rounds}` : pattern.ph.map((x) => x[1]).join('-')), h('span', null, meta.holds ? 'rounds' : pattern.name))),
         meta.holds?.length ? h('div', { class: 'chips', style: { justifyContent: 'center' } }, ...meta.holds.map((x, i) => h('span', { class: 'chip on', style: { '--c': pattern.color, '--ink': '#14140f' } }, `R${i + 1} · ${fmtSecs(x)}`))) : null,
         h('p', { class: 'muted center' }, MED_QUOTES[Math.floor(Math.random() * MED_QUOTES.length)]),
-        h('p', { class: 'muted small center' }, 'Logged under Meditation — it counts towards your study time.')),
+        (() => { const mw = meditationWeek(); const c = blockCredits(s); return h('p', { class: 'muted small center' }, `Logged under Meditation · ${mw.count} of ${mw.goal} days this week${mw.met ? ' — goal met ✓' : ''}`, c ? frag(' · ', coinIcon(), ` +${c}`) : null); })()),
       footer: frag(h('button', { class: 'btn', onClick: () => { m.close(); Panel.editSession(s.id); } }, 'Add a note'),
         h('button', { class: 'btn primary', onClick: () => m.close() }, 'Done')) });
   },

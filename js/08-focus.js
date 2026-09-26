@@ -59,7 +59,7 @@ const Focus = {
     const th = themeById(r ? r.theme : state.settings.last_theme);
     mb.replaceChildren(th ? frag(h('i', { class: 'dot', style: { background: th.color } }), h('span', null, th.name)) : h('span', { style: { opacity: 0.6 } }, r ? 'Study' : 'Ready to start'));
     bar.replaceChildren(...[
-      !r ? h('button', { class: 'btn lg', onClick: () => { try { Timer.start(state.settings.last_theme || null, { free: true }); } catch (e) { toast(e.message, { error: true }); } } }, '▶ Start') : null,
+      !r ? h('button', { class: 'btn lg', onClick: () => startBlock(state.settings.last_theme || null, { free: true }) }, '▶ Start') : null,
       r && Timer.breakLeft() ? h('button', { class: 'btn lg', onClick: () => Timer.endBreak() }, '▶ Skip break') : null,
       r ? h('button', { class: 'btn lg', onClick: () => this.toggleNote() }, '📝 Note') : null,
       h('button', { class: 'btn lg', onClick: () => this.pickMission() }, '◉ Theme'),
@@ -125,13 +125,13 @@ const Focus = {
   async stop() {
     if (!runningSession()) return;
     this.close();
-    if (await confirmDialog('Stop the block?', { okLabel: 'Stop' })) { const s = Timer.stop(); if (s) Panel.closeSession(s.id); }
+    if (await confirmDialog('Stop the block?', { okLabel: 'Stop' })) stopBlock();
   },
   onKey(e) {
     if (!this.el) return; if (modalStack.length) return;
     const tag = document.activeElement?.tagName; if (tag === 'TEXTAREA' || tag === 'SELECT' || tag === 'INPUT') return;
     const k = e.key.toLowerCase();
-    if (k === ' ') { e.preventDefault(); const st = Timer.status(); if (st === 'idle') { try { Timer.start(state.settings.last_theme || null, { free: true }); } catch (err) { toast(err.message, { error: true }); } } else if (st === 'running') Timer.pause(); else Timer.resume(); }
+    if (k === ' ') { e.preventDefault(); const st = Timer.status(); if (st === 'idle') startBlock(state.settings.last_theme || null, { free: true }); else if (st === 'running') Timer.pause(); else Timer.resume(); }
     else if (k === 'n') { e.preventDefault(); this.toggleNote(); }
     else if (k === 'm') { e.preventDefault(); this.pickMission(); }
     else if (k === 'e') { e.preventDefault(); this.stop(); }

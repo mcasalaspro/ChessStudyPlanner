@@ -32,8 +32,8 @@ const App = {
     document.addEventListener('keydown', (e) => this.shortcuts(e));
     on('tick', () => this.updateLivePill()); on('change', () => this.updateLivePill());
     on('sync', (s) => this.updateSyncPill(s));
-    document.addEventListener('visibilitychange', () => { Clock.resync(); if (!document.hidden) { Timer.tick(); if (runningSession()) Timer.ensureLoops(); } Timer.heartbeat(); });
-    window.addEventListener('pagehide', () => Timer.heartbeat());
+    document.addEventListener('visibilitychange', () => { Clock.resync(); if (!document.hidden) { Timer.tick(); if (runningSession()) Timer.ensureLoops(); } Timer.heartbeat({ local: document.hidden }); });
+    window.addEventListener('pagehide', () => Timer.heartbeat({ local: true }));
     this.route(); this.renderHeader();
     Background.apply();
     Timer.hydrate();
@@ -43,8 +43,19 @@ const App = {
     setTimeout(() => Achievements.check('BOOT'), 1500);
     this.dailyQuote();
     setTimeout(() => this.meditationReminder(), 2500);
-    Sync.pull();
+    on('change', debounce(() => this.updateCredits(), 250));
+    on('storage', ({ full }) => (full
+      ? showBanner('storage', { warn: true, text: 'This browser is out of space for the offline copy. Your blocks are still saved online — keep the connection on, or free some space in the browser’s site data.' })
+      : hideBanner('storage')));
+    // the day is closed the next morning: after the first sync, when the tab comes back, and when the date changes
+    // …and only once the latest data has arrived, so another device's closing is never redone here
+    let first = true;
+    const checkDay = () => { if (first) return; (Sync.pulling || Promise.resolve()).then(() => DayClose.check()); };
+    Promise.race([Sync.pull(), new Promise((r) => setTimeout(r, 30000))]).then(() => { first = false; setTimeout(() => DayClose.check(), 700); });
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) setTimeout(checkDay, 1500); });
+    setInterval(() => { if (DayClose.lastCheck !== todayKey() && !document.hidden) checkDay(); }, 60000); // also retries when a popup was in the way
   },
+  updateCredits() { const el = $('#credits-num'); if (el) el.textContent = fmtNum(Credits.get().balance); },
   /* Quote of the day: same one all day, shown every time the app is opened. Click it for another. */
   dailyQuote(q) {
     const quote = q || quoteOfDay();
@@ -56,7 +67,8 @@ const App = {
     const key = 'csp:v2:medrem:' + (Auth.user?.id || 'x');
     try { if (localStorage.getItem(key) === todayKey()) return; } catch { /* */ }
     if (meditationStats().today) return;
-    showBanner('meditate', { text: 'No meditation today yet — two minutes of breathing before you study?', actions: [
+    const mw = meditationWeek(); if (mw.met) return; // the weekly habit is done: no nudging
+    showBanner('meditate', { text: `No meditation today yet · ${mw.count} of ${mw.goal} days this week${mw.met ? ' (goal met)' : ''} — two minutes of breathing before you study?`, actions: [
       { label: '2 min now', primary: true, onClick: () => { hideBanner('meditate'); Meditation.open(2); } },
       { label: 'Choose', onClick: () => { hideBanner('meditate'); Meditation.open(); } },
       { label: 'Not today', onClick: () => { try { localStorage.setItem(key, todayKey()); } catch { /* */ } hideBanner('meditate'); } },
@@ -93,10 +105,12 @@ const App = {
       this.mounted ? h('button', { class: 'live-pill', id: 'live-pill', type: 'button', title: 'Go to the timer', onClick: () => { location.hash = ''; setTimeout(() => $('#card-timer')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 50); } }, h('i', { class: 'dot' }), h('span', { class: 'txt num' }, '00:00')) : null,
       this.mounted ? (isReport
         ? frag(h('button', { class: 'btn primary', onClick: () => window.print() }, icon('chart'), 'Save PDF'), h('a', { class: 'btn', href: '#/' }, 'Back'))
-        : isSub ? h('a', { class: 'btn', href: '#/' }, 'Back')
+        : isSub ? frag(h('a', { class: 'btn credits-chip', href: '#/achievements', title: 'Credits to spend on your study room' }, h('span', { class: 'num', id: 'credits-num' }, fmtNum(Credits.get().balance)), coinIcon()), h('a', { class: 'btn', href: '#/' }, 'Back'))
         : frag(h('button', { class: 'btn primary study-now', onClick: () => StudyNow.open() }, icon('play'), 'Study now'),
             h('button', { class: 'btn med-open', title: 'Breathing practice', onClick: () => Meditation.open() }, icon('brain'), 'Meditation'),
-            h('a', { class: 'btn', href: '#/week' }, icon('bar-chart'), 'Week'), h('a', { class: 'btn', href: '#/achievements' }, icon('award')), h('a', { class: 'btn', href: '#/report' }, icon('chart'), 'Report'),
+            h('a', { class: 'btn', href: '#/week' }, icon('bar-chart'), 'Week'),
+            h('a', { class: 'btn credits-chip', href: '#/achievements', title: 'Achievements and your study room — credits to spend' }, icon('award'), h('span', { class: 'num', id: 'credits-num' }, fmtNum(Credits.get().balance)), coinIcon()),
+            h('a', { class: 'btn', href: '#/report' }, icon('chart'), 'Report'),
             h('button', { class: 'btn icon', title: 'Settings', 'aria-label': 'Settings', onClick: () => Panel.settings() }, icon('gear')), cfg.homeUrl ? h('a', { class: 'btn', href: cfg.homeUrl }, 'Back') : null)) : null);
     this.renderMobileNav();
     this.updateLivePill();

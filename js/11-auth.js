@@ -22,10 +22,12 @@ const Auth = {
     if (error) throw error;
     this.user = data.user; App.onAuthChange(); return data.user;
   },
+  /* Everything is sent first; if something could not be sent, the person decides. */
   async signOut() {
-    Sync.flush(true);
+    if (Sync.dirty.size) { await Sync.flush(); }
+    if (Sync.dirty.size && !(await confirmDialog('Some changes have not reached the cloud yet (no connection?). Signing out now loses them. Sign out anyway?', { okLabel: 'Sign out', danger: true }))) return;
     try { await this.client.auth.signOut(); } catch { /* */ }
-    clearLocalCache(); this.user = null; location.hash = ''; location.reload();
+    Sync.forget(); clearLocalCache(); this.user = null; location.hash = ''; location.reload();
   },
   renderLogin(root, message) {
     const email = h('input', { type: 'email', placeholder: 'Email', autocomplete: 'username', required: true });

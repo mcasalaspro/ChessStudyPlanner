@@ -14,7 +14,7 @@ function exportCsv(sessions) {
   download(`chess-study-${ymd(new Date())}.csv`, '\ufeff' + rows.join('\r\n'), 'text/csv;charset=utf-8');
 }
 function exportJson() {
-  const dump = { app: 'chess-study-planner', version: 2, exported_at: iso(Date.now()), settings: state.settings, missions: state.missions, sessions: state.sessions };
+  const dump = { app: 'chess-study-planner', version: 3, exported_at: iso(Date.now()), settings: state.settings, missions: state.missions, sessions: state.sessions, days: state.days, room: state.room };
   download(`chess-study-backup-${ymd(new Date())}.json`, JSON.stringify(dump, null, 2), 'application/json');
 }
 function importJson(obj) {
@@ -35,6 +35,8 @@ function importJson(obj) {
   const running = state.sessions.filter((s) => !s.deleted_at && !s.ended_at).sort((a, b) => a.started_at.localeCompare(b.started_at));
   running.slice(1).forEach((s) => { s.ended_at = iso(Math.max(ms(s.started_at) + 60000, ms(s.updated_at || s.started_at))); s.meta = { ...(s.meta || {}), autoclosed: true, autoclosed_reason: 'import' }; dirty('session', s.id); });
   if (obj.version >= 2 && obj.settings && Array.isArray(obj.settings.themes)) updateSettings({ ...obj.settings, name: state.settings.name || obj.settings.name });
+  if (obj.days && typeof obj.days === 'object') { state.days = mergeDaysDoc(state.days, obj.days); dirty('settings', 'days'); }
+  if (obj.room && typeof obj.room === 'object') { state.room = mergeRoomDoc(state.room, obj.room); dirty('settings', 'room'); }
   commit('sessions');
   return { n, u, c };
 }

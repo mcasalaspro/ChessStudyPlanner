@@ -12,13 +12,13 @@ const TimerCard = {
     const theme = r ? r.theme : s.last_theme;
     const chips = themeChips(theme, (v) => { if (r) Timer.setTheme(v); else updateSettings({ last_theme: v }); }, { allowNone: false });
     const startBtn = h('button', { class: 'btn primary', id: 'btn-start', disabled: st === 'running' || onBreak, title: st === 'paused' ? 'Back to studying' : 'Starts right away: no target, no automatic breaks',
-      onClick: () => { try { if (st === 'paused') Timer.resume(); else Timer.start(theme, { free: true }); } catch (e) { toast(e.message, { error: true }); } } },
+      onClick: () => { if (st === 'paused') Timer.resume(); else startBlock(theme, { free: true }); } },
       onBreak ? frag(icon('clock'), 'On break') : frag(icon('play'), st === 'paused' ? 'Resume' : 'Start'));
     const pauseBtn = onBreak
       ? h('button', { class: 'btn primary', onClick: () => Timer.endBreak() }, icon('play'), 'Skip break')
       : h('button', { class: 'btn', disabled: st !== 'running', title: 'Pause the clock — resume when you are back', onClick: () => Timer.pause() }, icon('pause'), 'Break');
     const plusBtn = onBreak ? h('button', { class: 'btn', onClick: () => Timer.addBreakMinutes(5) }, '+5 min break') : h('button', { class: 'btn', disabled: !r, title: 'Started before you hit Start? Moves the beginning back 10 minutes.', onClick: () => { if (Timer.addMinutes(10)) toast('+10 min added to the start'); else toast('Cannot move the start back: another block is right before it.', { error: true }); } }, '+10 min');
-    const stopBtn = h('button', { class: 'btn', disabled: !r, onClick: () => { const x = Timer.stop(); if (x) Panel.closeSession(x.id); } }, icon('check'), 'Stop');
+    const stopBtn = h('button', { class: 'btn', disabled: !r, onClick: () => stopBlock() }, icon('check'), 'Stop');
     const focusBtn = h('button', { class: 'btn', onClick: () => Focus.open() }, icon('focus'), 'Focus');
     const breakIn = h('input', { type: 'number', min: 0, max: 240, value: s.break_every_min, 'aria-label': 'Break reminder every (min)', onChange: (e) => updateSettings({ break_every_min: clamp(+e.target.value || 0, 0, 240) }) });
     // one-click session lengths: log a block of 30 min / 1 h / 2 h ending now (or set the timer target if it is running)
@@ -26,9 +26,10 @@ const TimerCard = {
       ...DURATION_PRESETS.map(([mins, label]) => h('button', { class: 'btn sm' + (r && s.target_min === mins ? ' primary' : ''), title: r ? `Stop automatically after ${label} of net study` : `Log a ${label} block ending now`, onClick: () => this.preset(mins, label) }, label)),
       r && s.target_min ? h('button', { class: 'btn sm ghost', title: 'Remove the target', onClick: () => updateSettings({ target_min: null }) }, '✕') : null);
     const quick = r ? h('div', { class: 'quick-note' }, h('textarea', { rows: 2, placeholder: 'Quick note (Ctrl+Enter adds it to the block)', onKeydown: (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); this.addNote(e.target); } } }), h('button', { class: 'btn sm', onClick: (e) => this.addNote(e.currentTarget.previousElementSibling) }, 'Add')) : null;
+    const mw = meditationWeek();
     setKids(this.el,
       h('div', { class: 'card-head' }, h('h2', null, 'Study timer'), r ? h('button', { class: 'btn sm ghost', onClick: () => Panel.editSession(r.id) }, icon('edit'), 'Block details') : h('div', { class: 'row' },
-        h('button', { class: 'btn sm med-open', title: 'Breathing practice — counts as study time', onClick: () => Meditation.open() }, icon('brain'), 'Meditation'),
+        h('button', { class: 'btn sm med-open', title: `Breathing practice — counts as study time · ${mw.count} of ${mw.goal} days this week`, onClick: () => Meditation.open() }, icon('brain'), 'Meditation', h('span', { class: 'med-count' + (mw.met ? ' met' : '') }, `${mw.count}/${mw.goal}`)),
         h('button', { class: 'btn sm', id: 'btn-study-now', title: 'Choose theme, length and breaks first', onClick: () => StudyNow.open() }, icon('gear'), 'With setup'))),
       chips,
       h('div', { class: 'clock ' + st + (onBreak ? ' onbreak' : '') }, h('div', { class: 'clock-frozen num', id: 'clk-frozen' }), h('div', { class: 'clock-main num', id: 'clk-main', role: 'timer' }, '00:00'), h('div', { class: 'clock-sub', id: 'clk-sub' }, 'Pick a theme and start.')),
@@ -43,11 +44,7 @@ const TimerCard = {
   preset(mins, label) {
     const r = runningSession();
     if (r) { updateSettings({ target_min: state.settings.target_min === mins ? null : mins }); if (state.settings.target_min) toast(`Target set: ${label} of net study`); return; }
-    const end = Math.round(nowMs() / MIN) * MIN; const start = end - mins * MIN;
-    const fit = Calendar.fitMove(start, end); if (!fit.ok) { toast('Does not fit: it overlaps another block', { error: true }); return; }
-    const data = { theme: state.settings.last_theme || themes()[0]?.id, started_at: iso(fit.start), ended_at: iso(fit.end), source: 'manual' };
-    const errs = validateSession(data); if (errs.length) { toast(errs[0].message, { error: true }); return; }
-    const s = createSession(data); toastUndo(`${label} block logged`); Calendar.reveal(s.id);
+    logNow(mins);
   },
   addNote(ta) { if (Timer.addQuickNote(ta.value)) { ta.value = ''; toast('Note added to the block'); } },
   updateDigits() {
@@ -74,21 +71,41 @@ const TodayCard = {
     window.addEventListener('resize', () => { const m = window.innerWidth <= 760; if (m !== this.mobile) this.render(); });
   },
   render() {
-    const tk = todayKey(); const info = netByDay(tk, tk).get(tk); const total = info?.net || 0; const count = info?.count || 0;
+    const tk = todayKey(); const closed = isDayLocked(tk);
     this.mobile = window.innerWidth <= 760;
-    const head = h('div', { class: 'card-head' },
-      h('div', { class: 'row' }, h('h2', null, this.mobile ? this.greeting() : 'Today'), h('span', { class: 'muted small' }, fmtDayLong(tk))),
-      h('div', { class: 'row' }, h('span', { class: 'today-total num' }, fmtHM(total / MIN)), h('span', { class: 'muted small' }, count ? `${count} block${count > 1 ? 's' : ''}` : 'no blocks yet'),
-        ...(this.mobile ? [] : [...DURATION_PRESETS.map(([mins, label]) => h('button', { class: 'btn sm', title: `Add a ${label} block`, onClick: () => this.add(mins) }, '+ ' + label)),
-          h('button', { class: 'btn sm', title: 'Mark a tournament day', onClick: () => Tournament.open(todayKey()) }, icon('flag'), 'Tournament'),
-          h('button', { class: 'btn sm', title: isDayLocked(tk) ? 'Reopen the day' : 'Close the day: blocks stop responding to drags and deletes', onClick: () => { setDayLocked(tk, !isDayLocked(tk)); toast(isDayLocked(tk) ? 'Day closed' : 'Day reopened'); } }, icon(isDayLocked(tk) ? 'refresh' : 'check-outline'), isDayLocked(tk) ? 'Reopen' : 'Finish day')])));
-    if (this.mobile) { setKids(this.el, head, h('div', { class: 'row', style: { gap: '6px' } },
-        h('button', { class: 'btn primary lg full grow', onClick: () => { try { Timer.start(state.settings.last_theme, { free: true }); toast('Timer running — take a break whenever you need'); } catch (e) { toast(e.message, { error: true }); } } }, icon('play'), 'START'),
+    const head = h('div', { class: 'card-head today-head' },
+      h('div', { class: 'row' }, h('h2', null, this.mobile ? this.greeting() : 'Today'), h('span', { class: 'muted small' }, fmtDayLong(tk)), closed ? h('span', { class: 'tag ok' }, 'closed') : null),
+      this.mobile ? null : h('div', { class: 'row' },
+        ...DURATION_PRESETS.map(([mins, label]) => h('button', { class: 'btn sm', title: `Log a ${label} block that just ended`, onClick: () => logNow(mins) }, 'Log ' + label)),
+        h('button', { class: 'btn sm', title: 'Log the time you spent at a tournament', onClick: () => Tournament.open(tk) }, icon('flag'), 'Tournament'),
+        closed ? h('button', { class: 'btn sm', title: 'Reopen the day to change its blocks', onClick: () => { setDayLocked(tk, false); toast('Day reopened'); } }, icon('refresh'), 'Reopen')
+          : h('button', { class: 'btn sm', title: 'Close the day now: confirm the blocks and see a short summary', onClick: () => DayClose.run([tk], { manual: true }) }, icon('check-outline'), 'Finish day')));
+    if (this.mobile) { setKids(this.el, head, this.stats(tk), h('div', { class: 'row', style: { gap: '6px' } },
+        h('button', { class: 'btn primary lg full grow', onClick: () => startBlock(state.settings.last_theme, { free: true, then: () => toast('Timer running — take a break whenever you need') }) }, icon('play'), 'START'),
         h('button', { class: 'btn lg', title: 'Choose theme, length and breaks first', onClick: () => StudyNow.open() }, icon('gear'))), this.agenda(tk), this.weekLine()); return; }
     const grid = Calendar.buildGrid([tk], true, { big: true });
-    setKids(this.el, head, h('div', { class: 'tl-wrap' }, grid));
+    setKids(this.el, head, this.stats(tk), h('div', { class: 'tl-wrap' }, grid));
     Calendar.attachPointer(grid);
     this.updateNow();
+  },
+  /* What matters first: how focused it felt, then which themes, then the hours. */
+  stats(tk) {
+    const f = focusStats(tk, tk); const info = netByDay(tk, tk).get(tk); const total = info?.net || 0; const count = info?.count || 0;
+    const r = runningSession(); const mw = meditationWeek();
+    const dots = f.list.map((s) => h('i', { class: 'fdot ' + (s.meta?.rating || 'none'), title: `${themeName(s.theme)} · ${hm(ms(s.started_at))} · ${s.meta?.rating || 'not rated'}` }));
+    if (r) dots.push(h('i', { class: 'fdot live', title: `${themeName(r.theme)} · running` }));
+    const focusTxt = f.rated ? `${f.focused} of ${f.rated} focused` : f.total ? 'not rated yet' : r ? 'first block running' : 'no blocks yet';
+    const themeRows = Array.from(info?.byTheme || []).sort((a, b) => b[1] - a[1]).slice(0, 3);
+    const tn = (k) => (k === '__none' ? null : k);
+    return h('div', { class: 'today-stats' },
+      h('div', { class: 'ts ts-focus', title: 'Share of today’s rated blocks that felt focused' }, h('span', { class: 'ts-lbl' }, 'Focus'),
+        h('div', { class: 'ts-val' }, dots.length ? h('span', { class: 'fdots' }, ...dots) : null, h('span', { class: f.rated ? '' : 'muted' }, focusTxt))),
+      h('div', { class: 'ts ts-themes' }, h('span', { class: 'ts-lbl' }, 'Themes'),
+        h('div', { class: 'ts-val' }, themeRows.length ? themeRows.map(([k, v]) => h('span', { class: 'ts-theme' }, themeDot(tn(k)), themeName(tn(k)), ' ', h('b', { class: 'num' }, fmtHM(v / MIN)))) : h('span', { class: 'muted' }, '—'))),
+      h('div', { class: 'ts ts-time' }, h('span', { class: 'ts-lbl' }, 'Time'),
+        h('div', { class: 'ts-val' }, h('b', { class: 'today-total num' }, fmtHM(total / MIN)), h('span', { class: 'muted small' }, count ? `${count} block${count > 1 ? 's' : ''}` : ''))),
+      h('div', { class: 'ts ts-med', title: `Meditation this week: ${mw.count} of ${mw.goal} days` }, h('span', { class: 'ts-lbl' }, 'Meditation'),
+        h('div', { class: 'ts-val' }, h('span', { class: 'mdots' }, ...mw.days.map((d) => h('i', { class: (d.done ? 'on' : '') + (d.day === tk ? ' today' : ''), title: fmtDayShort(d.day) }))), h('span', { class: 'num' + (mw.met ? ' met' : '') }, `${mw.count}/${mw.goal}`))));
   },
   greeting() { const hr = new Date(nowMs()).getHours(); return hr < 12 ? 'Good morning' : hr < 18 ? 'Good afternoon' : 'Good evening'; },
   /* Mobile: a vertical agenda reads better than a 24 h timeline. */
@@ -104,18 +121,15 @@ const TodayCard = {
           h('span', { class: 'grow' }, h('b', null, t ? frag(icon('flag'), s.meta?.tournament_name || 'Tournament day') : themeName(s.theme)), s.note_md ? noteIcon() : null,
             h('div', { class: 'muted small' }, s.ended_at ? `${fmtRange(tm.start, tm.end)} · ${fmtHM(tm.net / MIN)}` : `since ${hm(tm.start)} · running`)));
       }),
-      !list.length ? h('div', { class: 'empty' }, art('opening'), h('p', { class: 'muted italic small' }, 'Nothing scheduled today — hit Study now, or add a block below.')) : null,
-      h('div', { class: 'row preset-row' }, ...DURATION_PRESETS.map(([mins, label]) => h('button', { class: 'btn sm', onClick: () => this.add(mins) }, '+ ' + label)),
-        h('button', { class: 'btn sm', onClick: () => Tournament.open(todayKey()) }, icon('flag'))));
+      !list.length ? h('div', { class: 'empty' }, art('opening'), h('p', { class: 'muted italic small' }, 'Nothing logged today yet — press START, or log a block that already happened.')) : null,
+      h('div', { class: 'row preset-row' }, h('span', { class: 'muted small' }, 'Log:'), ...DURATION_PRESETS.map(([mins, label]) => h('button', { class: 'btn sm', onClick: () => logNow(mins) }, label)),
+        h('button', { class: 'btn sm', title: 'Tournament', onClick: () => Tournament.open(todayKey()) }, icon('flag')),
+        isDayLocked(tk) ? null : h('button', { class: 'btn sm', title: 'Finish day', onClick: () => DayClose.run([tk], { manual: true }) }, icon('check-outline'))));
   },
   weekLine() {
     const w = weekStats(weekStartKey()); const goal = (state.settings.weekly_goal_hours || 0) * 60;
     return h('a', { class: 'week-line', href: '#/week' }, h('span', null, 'This week'), h('b', { class: 'num' }, goal ? `${fmtHM(w.netMin)} / ${fmtHM(goal)}` : fmtHM(w.netMin)),
       goal ? h('div', { class: 'progress' }, h('i', { style: { width: Math.min(100, (w.netMin / goal) * 100) + '%' } })) : null);
-  },
-  add(mins) {
-    const now = new Date(nowMs()); const start = dayMs(todayKey(), Math.floor((now.getHours() * 60 + now.getMinutes()) / 15) * 15);
-    Calendar.createAt(start, mins);
   },
   updateNow() { if (!this.mobile) Calendar.paintNow(this.el); },
 };
@@ -205,11 +219,11 @@ const Calendar = {
     const days = this.days(); const tk = todayKey();
     const seg = segmented([['week', 'Week'], ['month', 'Month'], ['quarter', 'Quarter']], this.mode, (v) => { this.mode = v; this.render(); }, 'sm');
     const n = this.nDays();
-    const nav = h('div', { class: 'row' }, h('button', { class: 'btn icon sm', 'aria-label': 'Previous period', onClick: () => { this.anchor = addDays(this.anchor, -n); this.render(); } }, '‹'), h('button', { class: 'btn sm', onClick: () => { this.anchor = tk; this.render(); } }, 'Today'), h('button', { class: 'btn icon sm', 'aria-label': 'Next period', onClick: () => { this.anchor = addDays(this.anchor, n); this.render(); } }, '›'));
+    const nav = h('div', { class: 'row' }, h('button', { class: 'btn icon sm', 'aria-label': 'Previous period', onClick: () => { this.anchor = addDays(this.anchor, -n); this.render(); } }, '‹'), h('button', { class: 'btn sm', onClick: () => { this.anchor = tk; this.render(); } }, 'Today'), h('button', { class: 'btn icon sm', 'aria-label': 'Next period', disabled: this.anchor >= tk, onClick: () => { const a = addDays(this.anchor, n); this.anchor = a > tk ? tk : a; this.render(); } }, '›'));
     const grid = this.buildGrid(days, true);
     const legend = h('div', { class: 'legend' }, ...themes().map((th) => h('span', null, h('i', { style: { background: th.color } }), th.name)));
     setKids(this.el,
-      h('div', { class: 'card-head' }, h('div', null, h('h2', null, 'Study calendar'), h('p', { class: 'sub' }, 'Rows = days, columns = hours. Click a block to edit it in the side panel · drag to move · pull the edges to resize · Alt+drag duplicates · click an empty slot to create.')), h('div', { class: 'row' }, seg, nav)),
+      h('div', { class: 'card-head' }, h('div', null, h('h2', null, 'Study calendar'), h('p', { class: 'sub' }, 'A record of what you did. Click a block to fix it · drag to move · pull the edges to resize · click an empty slot in the past to log a block you forgot.')), h('div', { class: 'row' }, seg, nav)),
       h('div', { class: 'tl-wrap' + (this.mode === 'week' ? '' : ' scroll') }, grid), legend);
     this.attachPointer(grid);
     if (this.focusId) { const b = $(`.blk[data-id="${this.focusId}"]`, grid); if (b) b.focus(); this.focusId = null; }
@@ -224,8 +238,8 @@ const Calendar = {
       const label = interactive
         ? h('button', { class: 'tl-label' + (closed ? ' closed' : ''), title: closed ? 'Day closed — click to reopen' : 'See the blocks of this day', onClick: () => Panel.day(k) }, closed ? icon('check-outline', 'tiny') : null, fmtDayShort(k))
         : h('div', { class: 'tl-label' + (closed ? ' closed' : '') }, closed ? icon('check-outline', 'tiny') : null, fmtDayShort(k));
-      const track = h('div', { class: 'tl-track', dataset: { date: k } }, ...Array.from({ length: 24 }, (_, hr) => h('i', { class: 'cell' + (isNightMinute(hr * 60 + 30) ? ' night' : ''), title: isNightMinute(hr * 60 + 30) ? 'Sleep hours (frozen)' : null })));
-      if (k === tk) track.append(h('div', { class: 'now-line' }, h('span', { class: 'now-lbl num' })));
+      const track = h('div', { class: 'tl-track', dataset: { date: k } }, ...Array.from({ length: 24 }, () => h('i', { class: 'cell' })));
+      if (k === tk) track.append(h('div', { class: 'future-mask', title: 'Still ahead — blocks are logged once they happen' }), h('div', { class: 'now-line' }, h('span', { class: 'now-lbl num' })));
       return h('div', { class: 'tl-row' + (k === tk ? ' today' : '') + (isMonday(k) ? ' week-start' : '') + (k > tk ? ' future' : '') + (closed ? ' closed' : ''), dataset: { date: k } },
         label, track, h('div', { class: 'tl-total num' }, tot ? fmtHM(tot / MIN) : ''));
     });
@@ -244,7 +258,7 @@ const Calendar = {
     const tm = sessionTimes(s); const live = !s.ended_at; const color = isTournament(s) ? '#b98cf0' : themeColor(s.theme);
     if (isTournament(s)) {
       const name = s.meta?.tournament_name || 'Tournament day';
-      const t = `🏁 ${name} · ${fmtRange(tm.start, tm.end)} (planning locked)`;
+      const t = `🏁 ${name} · ${fmtRange(tm.start, tm.end)} · ${fmtHM(tm.net / MIN)}`;
       return h('div', { class: 'blk tourn', role: 'gridcell', tabindex: interactive ? '0' : null, title: t, 'aria-label': t, dataset: { id: s.id, day: sg.day },
         style: { left: sg.left + '%', width: sg.width + '%', '--c': color, color: contrastInk(color) },
         onKeydown: interactive ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); Tournament.edit(s.id); } } : null },
@@ -260,6 +274,7 @@ const Calendar = {
   paintNow(root) {
     const pct = (minuteOfDay(nowMs()) / 1440) * 100;
     $$('.now-line', root || document).forEach((el) => { el.style.left = pct + '%'; const l = $('.now-lbl', el); if (l) l.textContent = hm(nowMs()); });
+    $$('.future-mask', root || document).forEach((el) => { el.style.left = pct + '%'; });
   },
   updateLive() { this.paintNow(this.el); const r = runningSession(); if (!r) return; const b = $(`.blk.live[data-id="${r.id}"]`, this.el); if (!b) return; const day = b.dataset.day; const st = Math.max(ms(r.started_at), dayMs(day, 0)); const en = Math.min(nowMs(), dayMs(addDays(day, 1), 0)); b.style.width = Math.max(0.35, ((en - st) / DAY) * 100) + '%'; },
   onKey(e, s) {
@@ -282,26 +297,16 @@ const Calendar = {
     }
     this.focusId = s.id; updateSession(s.id, patch); toastUndo('Block adjusted');
   },
-  planningGuard(startMs, endMs, onConfirm) {
-    const t = tournamentAt(startMs, endMs);
-    if (!t) { onConfirm(); return; }
-    confirmDialog(`${t.meta?.tournament_name || 'Tournament day'} is blocked for planning (${fmtRange(ms(t.started_at), ms(t.ended_at))}). Study sessions started with “Study now” are always allowed.`,
-      { title: 'Tournament day', okLabel: 'Schedule anyway' }).then((ok) => { if (ok) onConfirm(); });
-  },
+  /* Logging a forgotten block: only in the past. A click on the current hour makes a block that ends now. */
   createAt(startMs, lenMin) {
     if (isDayLocked(dayKeyOf(startMs))) { toast('That day is closed — reopen it in the day panel to add blocks', { error: true }); return null; }
-    if (tournamentAt(startMs, startMs + lenMin * MIN)) { this.planningGuard(startMs, startMs + lenMin * MIN, () => this.forceCreate(startMs, lenMin)); return null; }
-    if (nightBlocks(startMs, startMs + lenMin * MIN)) { toast('Those are your sleep hours — unfreeze them in Settings if you want to study then', { error: true }); return null; }
-    const fit = this.fitMove(startMs, startMs + lenMin * MIN); if (!fit.ok) { toast('Does not fit: another block is in the way', { error: true }); return null; }
+    const now = Math.floor(nowMs() / MIN) * MIN; let endMs = startMs + lenMin * MIN;
+    if (startMs >= now - 5 * MIN) { toast('That time has not happened yet — blocks are logged after you study.', { error: true }); return null; }
+    if (endMs > now) endMs = now;
+    const fit = this.fitMove(startMs, endMs); if (!fit.ok || fit.end > now + MIN) { toast('Does not fit: another block is in the way', { error: true }); return null; }
     const data = { theme: state.settings.last_theme || themes()[0]?.id, started_at: iso(fit.start), ended_at: iso(fit.end), source: 'manual' };
     const errs = validateSession(data); if (errs.length) { toast(errs[0].message, { error: true }); return null; }
-    const s = createSession(data); this.focusId = s.id; this.selectedId = s.id; Panel.editSession(s.id); toastUndo('Block created'); return s;
-  },
-  forceCreate(startMs, lenMin) {
-    const fit = this.fitMove(startMs, startMs + lenMin * MIN); if (!fit.ok) { toast('Does not fit: another block is in the way', { error: true }); return null; }
-    const data = { theme: state.settings.last_theme || themes()[0]?.id, started_at: iso(fit.start), ended_at: iso(fit.end), source: 'manual' };
-    const errs = validateSession(data); if (errs.length) { toast(errs[0].message, { error: true }); return null; }
-    const s = createSession(data); this.focusId = s.id; Panel.editSession(s.id); toastUndo('Block created'); return s;
+    const s = createSession(data); this.focusId = s.id; this.selectedId = s.id; Panel.editSession(s.id); toastUndo('Block logged'); return s;
   },
   fitMove(start, end, excludeId) {
     const c = findOverlap(start, end, excludeId); if (!c) return { start, end, ok: true, raw: { start, end } };
@@ -349,11 +354,19 @@ const Calendar = {
       clearGhost(); const color = s ? themeColor(s.theme) : themeColor(state.settings.last_theme);
       drag.ghosts = this.segments(start, end).map((sg) => { const tr = $(`.tl-track[data-date="${sg.day}"]`, grid); if (!tr) return null; const g = h('div', { class: 'blk ghost' + (bad ? ' bad' : ''), style: { left: sg.left + '%', width: sg.width + '%', '--c': color, color: contrastInk(color) } }, h('span', { class: 't' }, `${fmtRange(start, end)} · ${fmtHM((end - start) / MIN)}`)); tr.append(g); return g; }).filter(Boolean);
     };
+    /* Nothing may reach into the future: the ghost turns red there. */
     const compute = (x, y) => {
+      const res = computeRaw(x, y); if (!res) return null;
+      const runningResize = drag.session && !drag.session.ended_at;
+      if (!runningResize && res.end > nowMs() + MIN) return { ...res, ok: false, future: true };
+      return res;
+    };
+    const computeRaw = (x, y) => {
       const tr = trackAt(x, y); if (!tr) return null; const mins = minuteAt(tr, x); const s = drag.session;
       if (drag.kind === 'create') {
         const a = dayMs(drag.day, drag.anchorMin); const b = dayMs(tr.dataset.date, snapM(mins));
         let start = Math.min(a, b), end = Math.max(a, b); if (end - start < snapMin() * MIN) end = start + snapMin() * MIN;
+        const now = Math.floor(nowMs() / MIN) * MIN; if (end > now && start < now - 5 * MIN) end = now; // dragged past now: stop at now
         return b >= a ? this.fitEnd(start, end) : this.fitStart(start, end);
       }
       const deltaMin = snapM(mins - drag.startMin); const dayDelta = daysBetween(drag.day, tr.dataset.date);
@@ -374,8 +387,8 @@ const Calendar = {
       if (!commitIt || !d.moved || !res) return;
       const reject = (msg) => { blocks.forEach((b) => { b.classList.add('reject'); setTimeout(() => b.classList.remove('reject'), 300); }); toast(msg || 'Does not fit: it runs into another block', { error: true }); };
       if (d.session && sessionLocked(d.session)) { reject('That day is closed — reopen it in the day panel to change blocks'); return; }
-      if (!res.ok) { reject(); return; }
-      if (d.kind === 'create') { if (tournamentAt(res.start, res.end)) { this.planningGuard(res.start, res.end, () => this.forceCreate(res.start, (res.end - res.start) / MIN)); return; } if (nightBlocks(res.start, res.end)) { toast('Those are your sleep hours — unfreeze them in Settings if you want to study then', { error: true }); return; } const data = { theme: state.settings.last_theme || themes()[0]?.id, started_at: iso(res.start), ended_at: iso(res.end), source: 'manual' }; const errs = validateSession(data); if (errs.length) { toast(errs[0].message, { error: true }); return; } const s = createSession(data); this.selectedId = s.id; this.focusId = s.id; toastUndo('Block created'); setTimeout(() => Panel.editSession(s.id), 30); return; }
+      if (!res.ok) { reject(res.future ? FUTURE_MSG : undefined); return; }
+      if (d.kind === 'create') { const data = { theme: state.settings.last_theme || themes()[0]?.id, started_at: iso(res.start), ended_at: iso(res.end), source: 'manual' }; const errs = validateSession(data); if (errs.length) { toast(errs[0].message, { error: true }); return; } const s = createSession(data); this.selectedId = s.id; this.focusId = s.id; toastUndo('Block logged'); setTimeout(() => Panel.editSession(s.id), 30); return; }
       if (d.kind === 'dup') { const src = d.session; const shift = res.start - d.orig.start; const pauses = (src.pauses || []).map((p) => ({ start: iso(ms(p.start) + shift), end: p.end ? iso(ms(p.end) + shift) : null })); const data = { theme: src.theme, started_at: iso(res.start), ended_at: iso(res.end), pauses, source: 'manual', note_md: src.note_md }; const errs = validateSession(data); if (errs.length) { toast(errs[0].message, { error: true }); return; } const s = createSession(data); this.focusId = s.id; toastUndo('Block duplicated'); return; }
       const s = d.session; const shift = res.start - d.orig.start; const patch = { started_at: iso(res.start) };
       if (s.ended_at) patch.ended_at = iso(res.end);
@@ -433,6 +446,7 @@ const ReportsCard = {
     const [from, to] = this.period === 'all' ? [null, null] : periodRange(this.period);
     const r = sumRange(from, to); const sk = streakInfo();
     const byTheme = themes().map((th) => ({ th, min: r.byTheme.get(th.id) || 0 })); const other = r.byTheme.get('__none') || 0;
+    if (r.byTheme.get('tournament')) byTheme.push({ th: TOURNAMENT_THEME, min: r.byTheme.get('tournament') });
     const max = Math.max(1, ...byTheme.map((x) => x.min), other);
     const top = byTheme.slice().sort((a, b) => b.min - a.min)[0];
     const seg = segmented([['week', 'Week'], ['month', 'Month'], ['all', 'Total']], this.period, (v) => { this.period = v; this.render(); }, 'sm');

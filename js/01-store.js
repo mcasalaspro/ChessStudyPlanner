@@ -14,18 +14,23 @@ const DEFAULT_THEMES = [
 const DEFAULT_SETTINGS = {
   name: '', themes: DEFAULT_THEMES.map((x) => ({ ...x })), last_theme: 'calculo',
   break_every_min: 25, break_len_min: 15, pause_autostop_min: 60, streak_min_min: 25, default_len_min: 60, snap_min: 15, target_min: null,
-  focus_anim: 'aurora', sound: true, bg_strength: 'strong', bg_source: 'folder', bg_query: 'chess dark moody', unsplash_key: '', night_freeze: false, night_from: '23:00', night_to: '07:00', guided_breaks: true, locked_days: [], med_reminder: true, med_pattern: '46', med_minutes: 5, wh_rounds: 3, wh_breaths: 30, wh_pace: 'normal', weekly_goal_hours: 0, books: [], achievements: {}, ach_feedback: true, updated_at: null,
+  focus_anim: 'aurora', sound: true, bg_strength: 'strong', bg_source: 'folder', bg_query: 'chess dark moody', unsplash_key: '', late_from: '23:00', guided_breaks: true, locked_days: [], med_reminder: true, med_goal_days: 5, med_pattern: '46', med_minutes: 5, wh_rounds: 3, wh_breaths: 30, wh_pace: 'normal', weekly_goal_hours: 0, books: [], achievements: {}, ach_feedback: true, updated_at: null,
 };
-let state = { v: 2, settings: JSON.parse(JSON.stringify(DEFAULT_SETTINGS)), sessions: [], missions: [] };
+/* Per-user documents besides the settings: closed days and the study room. */
+const emptyDays = () => ({ entries: {}, since: null, updated_at: null });
+const emptyRoom = () => ({ owned: [], placed: {}, style: {}, updated_at: null });
+let state = { v: 2, settings: JSON.parse(JSON.stringify(DEFAULT_SETTINGS)), sessions: [], missions: [], days: emptyDays(), room: emptyRoom() };
 let storageKey = 'csp:v2:local';
-const Store = { onDirty: null }; // set by Sync: (kind, id) => void
+/* version goes up on every data event, so derived numbers can be cached safely */
+const Store = { onDirty: null, version: 0, full: false }; // onDirty is set by Sync: (kind, id) => void
 
 const listeners = {};
+const QUIET_EVENTS = new Set(['tick', 'sync', 'drawer', 'select', 'storage']);
 function on(evt, fn) { (listeners[evt] ||= []).push(fn); return () => { listeners[evt] = listeners[evt].filter((f) => f !== fn); }; }
-function emit(evt, data) { (listeners[evt] || []).slice().forEach((fn) => { try { fn(data); } catch (e) { console.error(e); } }); }
+function emit(evt, data) { if (!QUIET_EVENTS.has(evt)) Store.version++; (listeners[evt] || []).slice().forEach((fn) => { try { fn(data); } catch (e) { console.error(e); } }); }
 
 function setStorageUser(userId) { storageKey = `csp:v2:${userId || 'local'}`; }
-function resetState() { state = { v: 2, settings: JSON.parse(JSON.stringify(DEFAULT_SETTINGS)), sessions: [], missions: [] }; }
+function resetState() { state = { v: 2, settings: JSON.parse(JSON.stringify(DEFAULT_SETTINGS)), sessions: [], missions: [], days: emptyDays(), room: emptyRoom() }; }
 function loadState() {
   resetState();
   try {
@@ -35,19 +40,40 @@ function loadState() {
       state.settings = { ...state.settings, ...(p.settings || {}) };
       if (!Array.isArray(state.settings.themes) || !state.settings.themes.length) state.settings.themes = DEFAULT_THEMES.map((x) => ({ ...x }));
       state.sessions = Array.isArray(p.sessions) ? p.sessions : []; state.missions = Array.isArray(p.missions) ? p.missions : [];
+      if (p.days && typeof p.days === 'object') state.days = { ...emptyDays(), ...p.days, entries: { ...(p.days.entries || {}) } };
+      if (p.room && typeof p.room === 'object') state.room = { ...emptyRoom(), ...p.room };
     }
   } catch (e) { console.error('load failed', e); }
+  Store.version++;
   return state;
 }
-function persist() { try { localStorage.setItem(storageKey, JSON.stringify(state)); } catch (e) { console.error('persist failed', e); } }
+/* The offline copy. When the browser runs out of space the data still goes online, but the person is told. */
+function persist() {
+  const data = JSON.stringify(state);
+  try { localStorage.setItem(storageKey, data); if (Store.full) { Store.full = false; emit('storage', { full: false }); } }
+  catch (e) {
+    try { // make room from caches that can be rebuilt, then try once more
+      Object.keys(localStorage).filter((k) => /^csp:v2:(bg|unsplash)/.test(k)).forEach((k) => localStorage.removeItem(k));
+      localStorage.setItem(storageKey, data); return;
+    } catch { /* still full */ }
+    console.error('persist failed', e);
+    if (!Store.full) { Store.full = true; emit('storage', { full: true }); }
+  }
+}
 function clearLocalCache() { try { localStorage.removeItem(storageKey); } catch { /* */ } }
 function commit(evt = 'change', data) { persist(); emit(evt, data); if (evt !== 'change') emit('change', data); }
-function dirty(kind, id) { if (Store.onDirty) Store.onDirty(kind, id); }
+/* keys = the settings fields that changed here (they win over the server copy until they are pushed) */
+function dirty(kind, id, keys) { if (Store.onDirty) Store.onDirty(kind, id, keys); }
+/* This browser's id: a running block is kept alive (heartbeat, automatic stops) only by the device that started it. */
+const DEVICE_ID = (() => { try { let d = localStorage.getItem('csp:v2:device'); if (!d) { d = uid().slice(0, 12); localStorage.setItem('csp:v2:device', d); } return d; } catch { return 'nodevice'; } })();
+const ownsRun = (s) => !!s && (!s.meta?.device || s.meta.device === DEVICE_ID);
 
 /* ===== Settings ===== */
-function updateSettings(patch) { Object.assign(state.settings, patch, { updated_at: iso(Date.now()) }); dirty('settings', 'settings'); commit('settings'); }
+function updateSettings(patch) { Object.assign(state.settings, patch, { updated_at: iso(Date.now()) }); dirty('settings', 'settings', Object.keys(patch)); commit('settings'); }
 const themes = () => state.settings.themes;
-const themeById = (id) => themes().find((x) => x.id === id) || null;
+/* Tournaments are not a study theme, but their hours count: they get a fixed colour in every chart. */
+const TOURNAMENT_THEME = { id: 'tournament', name: 'Tournament', color: '#b98cf0' };
+const themeById = (id) => themes().find((x) => x.id === id) || (id === 'tournament' ? TOURNAMENT_THEME : null);
 const themeName = (id) => themeById(id)?.name || 'No theme';
 const themeColor = (id) => themeById(id)?.color || '#8a9bb3';
 function upsertTheme(th) {
@@ -57,14 +83,22 @@ function upsertTheme(th) {
 }
 function removeTheme(id) { if (themes().length <= 1) return false; updateSettings({ themes: themes().filter((x) => x.id !== id) }); return true; }
 
-/* ===== Closed days (finished: protected from moves and deletes) ===== */
-const lockedDays = () => state.settings.locked_days || [];
-const isDayLocked = (key) => lockedDays().includes(key);
-function setDayLocked(key, on) {
-  const set = new Set(lockedDays());
-  if (on) set.add(key); else set.delete(key);
-  updateSettings({ locked_days: Array.from(set).sort().slice(-400) });
+/* ===== Days: closed (protected from moves and deletes), and what kind of day it was ===== */
+/* Rest, travel and recovery days neither add to the streak nor break it. */
+const DAY_TYPES = [['rest', 'Rest'], ['travel', 'Travel'], ['recovery', 'Recovery'], ['skipped', 'Skipped']];
+const NEUTRAL_DAYS = new Set(['rest', 'travel', 'recovery']);
+const dayEntry = (key) => state.days.entries[key] || null;
+function setDayEntry(key, patch, { silent = false } = {}) {
+  const now = iso(Date.now());
+  state.days.entries[key] = { ...(state.days.entries[key] || {}), ...patch, updated_at: now };
+  state.days.updated_at = now;
+  dirty('settings', 'days');
+  if (silent) persist(); else commit('days', { key });
 }
+/* Closed days used to live in the settings: an entry of its own always wins over that old list. */
+const isDayLocked = (key) => { const e = dayEntry(key); return e ? e.status === 'closed' : (state.settings.locked_days || []).includes(key); };
+function setDayLocked(key, on) { setDayEntry(key, on ? { status: 'closed', closed_at: iso(Date.now()) } : { status: 'open', closed_at: null }); }
+const dayType = (key) => dayEntry(key)?.type || null;
 const sessionLocked = (s) => !!s && isDayLocked(dayKeyOf(ms(s.started_at)));
 
 /* ===== Undo ===== */
@@ -98,8 +132,7 @@ const isLive = (s) => !s.deleted_at;
 const isTournament = (s) => s.meta?.type === 'tournament';
 const activeSessions = () => state.sessions.filter((s) => isLive(s) && s.ended_at && !isTournament(s));
 const tournamentDays = () => state.sessions.filter((s) => isLive(s) && isTournament(s));
-/* Any tournament block overlapping the range (planning is blocked there, real study is not) */
-function tournamentAt(startMs, endMs) { return tournamentDays().find((t) => ms(t.started_at) < endMs && ms(t.ended_at) > startMs) || null; }
+/* A tournament is logged like any block: its hours count and the day keeps the streak. */
 function createTournament({ start, end, name }) {
   const s = newSessionObj({ theme: null, started_at: iso(start), ended_at: iso(end), source: 'manual', meta: { type: 'tournament', tournament_name: name || '', locked: true } });
   state.sessions.push(s); dirty('session', s.id); commit('sessions', { id: s.id });
@@ -134,19 +167,24 @@ function sliceSession(s, now = nowMs()) {
   }
   return out;
 }
+/* Tournaments take part too: two records of the same minutes would count that time twice. */
 function findOverlap(startMs, endMs, excludeId) {
   const now = nowMs();
   for (const s of state.sessions) {
-    if (!isLive(s) || isTournament(s) || s.id === excludeId) continue;
+    if (!isLive(s) || s.id === excludeId) continue;
     const st = ms(s.started_at), en = s.ended_at ? ms(s.ended_at) : now;
     if (st < endMs && en > startMs) return s;
   }
   return null;
 }
+/* The app records what happened: nothing may start or end in the future (one minute of slack for clocks). */
+const FUTURE_MSG = 'Blocks record time that already happened — this one would go into the future.';
 function validateSession(data, excludeId) {
   const errs = [];
   const st = ms(data.started_at), en = data.ended_at ? ms(data.ended_at) : null;
   if (Number.isNaN(st)) errs.push({ code: 'start', message: 'Invalid start time.' });
+  const limit = nowMs() + MIN;
+  if (st > limit || (en != null && en > limit)) errs.push({ code: 'future', message: FUTURE_MSG });
   if (en != null) {
     if (!(en > st)) errs.push({ code: 'end', message: 'End must be after the start.' });
     else if (en - st > 16 * HOUR) errs.push({ code: 'long', message: 'Session longer than 16 h. Split it in two.' });
@@ -156,7 +194,7 @@ function validateSession(data, excludeId) {
   if ((data.note_md || '').length > 20000) errs.push({ code: 'note', message: 'The note exceeds 20,000 characters.' });
   if (en != null && en > st) {
     const c = findOverlap(st, en, excludeId);
-    if (c) errs.push({ code: 'overlap', message: `Overlaps another block (${fmtDayShort(dayKeyOf(ms(c.started_at)))} ${fmtRange(ms(c.started_at), c.ended_at ? ms(c.ended_at) : nowMs())}).`, conflict: c });
+    if (c) errs.push({ code: 'overlap', message: `Overlaps ${isTournament(c) ? 'a tournament' : 'another block'} (${fmtDayShort(dayKeyOf(ms(c.started_at)))} ${fmtRange(ms(c.started_at), c.ended_at ? ms(c.ended_at) : nowMs())}).`, conflict: c });
   }
   return errs;
 }
@@ -214,7 +252,7 @@ function planPush(startMs, endMs, excludeId, dir) {
     const shift = dir > 0 ? curEnd - hs : curStart - he;
     const ns = hs + shift, ne = he + shift;
     if (ne > dayEnd || ns < dayStart) return null;
-    if (state.settings.night_freeze && nightBlocks(ns, ne)) return null;
+    if (ne > nowMs() + MIN) return null; // a neighbour cannot be pushed into the future
     seen.add(hit.id); moves.push({ id: hit.id, shift, start: ns, end: ne });
     curStart = ns; curEnd = ne;
   }
@@ -257,15 +295,6 @@ function mergeSessions(idA, idB) {
     { id: second.id, remove: true },
   ]);
   return sessionById(first.id);
-}
-
-function duplicateSessionTomorrow(id) {
-  const s = sessionById(id); if (!s || !s.ended_at) return null;
-  const st = ms(s.started_at) + DAY, en = ms(s.ended_at) + DAY;
-  const pauses = (s.pauses || []).map((p) => ({ start: iso(ms(p.start) + DAY), end: p.end ? iso(ms(p.end) + DAY) : null }));
-  const data = { theme: s.theme, started_at: iso(st), ended_at: iso(en), pauses, source: 'manual', note_md: s.note_md };
-  const errs = validateSession(data); if (errs.length) return { errors: errs };
-  return { session: createSession(data) };
 }
 
 /* ===== Missions (meta de horas por tema com prazo) ===== */
@@ -335,7 +364,7 @@ function themeBreakdown(fromKey, toKey) {
   const r = sumRange(fromKey, toKey);
   const list = sessionsInRange(fromKey, toKey);
   const counts = new Map(), last = new Map();
-  for (const s of list) {
+  for (const s of [...list, ...tournamentDays().filter((t) => { const k = dayKeyOf(ms(t.started_at)); return (!fromKey || k >= fromKey) && (!toKey || k <= toKey); }).map((t) => ({ ...t, theme: 'tournament' }))]) {
     const k = s.theme || '__none';
     counts.set(k, (counts.get(k) || 0) + 1);
     const d = dayKeyOf(ms(s.started_at));
@@ -469,8 +498,13 @@ const Achievements = {
     for (const a of ACHIEVEMENTS) { if (won[a.id]) continue; if (a.val(m) >= a.goal) { won[a.id] = iso(Date.now()); fresh.push(a); } }
     if (!fresh.length) return [];
     state.settings.achievements = won; state.settings.updated_at = iso(Date.now());
-    dirty('settings', 'settings'); persist();
-    if (state.settings.ach_feedback !== false) fresh.forEach((a, i) => setTimeout(() => announceAchievement(a), i * 1500));
+    dirty('settings', 'settings', ['achievements']); persist();
+    if (state.settings.ach_feedback !== false) {
+      // a burst (first sync, old history) is summed up instead of filling the screen with toasts
+      const shown = fresh.length > 3 ? fresh.slice(0, 2) : fresh;
+      shown.forEach((a, i) => setTimeout(() => announceAchievement(a), i * 1500));
+      if (fresh.length > 3) { const rest = fresh.slice(2); setTimeout(() => announceAchievement({ icon: 'award', name: `${rest.length} more achievements`, desc: rest.slice(0, 3).map((x) => x.name).join(' · ') + (rest.length > 3 ? ' …' : ''), bonus: rest.reduce((a2, x) => a2 + (ACH_CREDITS[x.tier] || 0), 0) }), 3000); }
+    }
     emit('achievements', fresh);
     return fresh;
   },
@@ -491,36 +525,63 @@ function ratingStats(fromKey, toKey) {
   return out;
 }
 
-/* ===== Night hours (sleep window) ===== */
+/* ===== Late study: pointed out, never punished ===== */
 const hhmmToMin = (v) => { const [a, b] = String(v || '').split(':').map(Number); return (a || 0) * 60 + (b || 0); };
-/* True when the given minute of the day falls inside the frozen sleep window. */
-function isNightMinute(min) {
-  if (!state.settings.night_freeze) return false;
-  const a = hhmmToMin(state.settings.night_from), b = hhmmToMin(state.settings.night_to);
-  if (a === b) return false;
-  return a < b ? min >= a && min < b : min >= a || min < b;
+const LATE_UNTIL_MIN = 5 * 60; // the small hours count as late too
+/* dayKey -> minutes of net study after the late hour (default 23:00) or before 05:00 */
+function lateByDay(fromKey, toKey) {
+  const map = new Map(); const from = hhmmToMin(state.settings.late_from || '23:00');
+  for (const s of activeSessions()) {
+    if (s.meta?.type === 'meditation') continue;
+    for (const sl of sliceSession(s)) {
+      if ((fromKey && sl.day < fromKey) || (toKey && sl.day > toKey)) continue;
+      const wins = from < LATE_UNTIL_MIN ? [[dayMs(sl.day, from), dayMs(sl.day, LATE_UNTIL_MIN)]] : [[dayMs(sl.day, 0), dayMs(sl.day, LATE_UNTIL_MIN)], [dayMs(sl.day, from), dayMs(addDays(sl.day, 1), 0)]];
+      const pz = normPauses(s, sl.end);
+      let late = 0;
+      for (const [a, b] of wins) {
+        const g = overlapMs(sl.start, sl.end, a, b); if (!g) continue;
+        const lo = Math.max(sl.start, a), hi = Math.min(sl.end, b);
+        late += g - pz.reduce((acc, p) => acc + overlapMs(p.s, p.e, lo, hi), 0);
+      }
+      if (late > 30000) map.set(sl.day, (map.get(sl.day) || 0) + late / MIN);
+    }
+  }
+  return map;
 }
-function nightBlocks(startMs, endMs) { // any minute of the range inside the sleep window
-  if (!state.settings.night_freeze) return false;
-  for (let t = startMs; t < endMs; t += 15 * MIN) if (isNightMinute(minuteOfDay(t))) return true;
-  return isNightMinute(minuteOfDay(endMs - 1));
+
+/* ===== Focus (the rating asked when a block closes) ===== */
+function focusStats(fromKey, toKey, filter) {
+  const out = { focused: 0, normal: 0, scattered: 0, unrated: 0, total: 0, rated: 0, share: null, list: [] };
+  for (const s of activeSessions()) {
+    if (s.meta?.type === 'meditation') continue;
+    const k = dayKeyOf(ms(s.started_at)); if ((fromKey && k < fromKey) || (toKey && k > toKey)) continue;
+    if (filter && !filter(s)) continue;
+    out.total++; out.list.push(s);
+    const r = s.meta?.rating; if (r === 'focused' || r === 'normal' || r === 'scattered') out[r]++; else out.unrated++;
+  }
+  out.rated = out.total - out.unrated; out.share = out.rated ? out.focused / out.rated : null;
+  out.list.sort((a, b) => a.started_at.localeCompare(b.started_at));
+  return out;
 }
 
 /* ===== Aggregations ===== */
-/* Map dayKey -> {net, gross, count, ids, byTheme} over live sessions (running included, clipped at now) */
+/* Map dayKey -> {net, gross, count, ids, byTheme, tourn} over live sessions (running included, clipped at now).
+   Tournament time counts, under its own colour. */
 function netByDay(fromKey, toKey, filter) {
   const map = new Map(); const now = nowMs();
   const fromMs = fromKey ? dayMs(fromKey, 0) : -Infinity, toMs = toKey ? dayMs(addDays(toKey, 1), 0) : Infinity;
   for (const s of state.sessions) {
-    if (!isLive(s) || isTournament(s) || (filter && !filter(s))) continue;
+    if (!isLive(s) || (filter && !filter(s))) continue;
     const st = ms(s.started_at), en = s.ended_at ? ms(s.ended_at) : now;
-    if (en <= fromMs || st >= toMs || st >= now) continue; // planned (future) blocks don't count yet
+    if (en <= fromMs || st >= toMs || st >= now) continue; // anything still in the future does not count yet
+    const tourn = isTournament(s);
     for (const sl of sliceSession(s, now)) {
       if ((fromKey && sl.day < fromKey) || (toKey && sl.day > toKey) || sl.start >= now) continue;
       const frac = Math.min(sl.end, now) - sl.start > 0 ? (Math.min(sl.end, now) - sl.start) / (sl.end - sl.start) : 0;
-      const e = map.get(sl.day) || { net: 0, gross: 0, count: 0, ids: new Set(), byTheme: new Map() };
-      e.net += sl.net * frac; e.gross += sl.gross * frac; if (!e.ids.has(s.id)) { e.ids.add(s.id); e.count++; }
-      const k = s.theme || '__none'; e.byTheme.set(k, (e.byTheme.get(k) || 0) + sl.net * frac);
+      const e = map.get(sl.day) || { net: 0, gross: 0, count: 0, ids: new Set(), byTheme: new Map(), tourn: false };
+      e.net += sl.net * frac; e.gross += sl.gross * frac; if (!tourn && !e.ids.has(s.id)) { e.ids.add(s.id); e.count++; } // ids/count = study blocks
+      if (tourn) e.tourn = true;
+      const k = tourn ? 'tournament' : s.theme || '__none'; e.byTheme.set(k, (e.byTheme.get(k) || 0) + sl.net * frac);
       map.set(sl.day, e);
     }
   }
@@ -538,17 +599,28 @@ function periodRange(preset) { // last N days ending today
   if (preset === 'quarter') return [addDays(tk, -89), tk];
   return [null, null];
 }
+/* 'ok' = the day counts (enough study, or a tournament), 'neutral' = rest/travel/recovery, 'miss' = breaks the streak */
+function dayStreakState(key, map, minMs) {
+  const e = map.get(key);
+  if (e && (e.net >= minMs || e.tourn)) return 'ok';
+  return NEUTRAL_DAYS.has(dayType(key)) ? 'neutral' : 'miss';
+}
 function streakInfo() {
   const minMs = (state.settings.streak_min_min || 25) * MIN;
   const map = netByDay(null, null); const tk = todayKey();
-  let current = 0, day = tk;
-  const todayOk = (map.get(tk)?.net || 0) >= minMs;
-  if (!todayOk) day = addDays(tk, -1);
-  while ((map.get(day)?.net || 0) >= minMs) { current++; day = addDays(day, -1); }
-  const keys = Array.from(map.keys()).filter((k) => map.get(k).net >= minMs).sort();
-  let best = 0, run = 0, prev = null;
-  for (const k of keys) { run = prev && addDays(prev, 1) === k ? run + 1 : 1; best = Math.max(best, run); prev = k; }
-  return { current, best: Math.max(best, current), todayOk, todayMin: (map.get(tk)?.net || 0) / MIN };
+  const st = (k) => dayStreakState(k, map, minMs);
+  const todayOk = st(tk) === 'ok';
+  let current = 0, day = todayOk ? tk : addDays(tk, -1), guard = 0; // today still open: it cannot break anything yet
+  while (guard++ < 4000) { const s = st(day); if (s === 'ok') current++; else if (s !== 'neutral') break; day = addDays(day, -1); }
+  const keys = Array.from(map.keys()).sort(); let best = current, run = 0;
+  if (keys.length) {
+    guard = 0;
+    for (let d = keys[0]; d <= tk && guard++ < 4000; d = addDays(d, 1)) {
+      const s = st(d);
+      if (s === 'ok') { run++; best = Math.max(best, run); } else if (s === 'miss' && d !== tk) run = 0;
+    }
+  }
+  return { current, best, todayOk, todayMin: (map.get(tk)?.net || 0) / MIN };
 }
 /* last n months: [{key:'YYYY-MM', label, total(min), byTheme: Map}] ending this month */
 function monthlyTotals(n) {
@@ -559,3 +631,48 @@ function monthlyTotals(n) {
   }
   return out;
 }
+
+/* ===== Meditation habit: a weekly goal of days ===== */
+function meditationDaySet() { return new Set(activeSessions().filter((s) => s.meta?.type === 'meditation').map((s) => dayKeyOf(ms(s.started_at)))); }
+const medGoal = () => clamp(Math.round(+state.settings.med_goal_days || 5), 1, 7);
+function meditationWeek(startKey = weekStartKey()) {
+  const set = meditationDaySet(); const goal = medGoal();
+  const days = Array.from({ length: 7 }, (_, i) => { const k = addDays(startKey, i); return { day: k, done: set.has(k) }; });
+  const count = days.filter((d) => d.done).length;
+  return { goal, count, met: count >= goal, days, left: Math.max(0, goal - count) };
+}
+
+/* ===== Credits: earned by studying, spent on the study room =====
+   Everything is derived from the records, so the balance can never drift between devices. */
+const CREDITS_PER_HOUR = 10;
+const ACH_CREDITS = { 1: 10, 2: 25, 3: 50, 4: 100, 5: 200 };
+const CLOSE_DAY_CREDITS = 5, MED_DAY_CREDITS = 4;
+const LEVEL_TITLES = [[1, 'Pawn'], [3, 'Knight'], [5, 'Bishop'], [8, 'Rook'], [12, 'Queen'], [16, 'King'], [20, 'Master'], [26, 'Grandmaster']];
+const blockCredits = (s) => (s && isLive(s) && s.ended_at ? Math.floor(sessionTimes(s).net / MIN / (60 / CREDITS_PER_HOUR)) : 0);
+function levelInfo(xp) {
+  const level = Math.floor(Math.sqrt(Math.max(0, xp) / 50)) + 1;
+  const from = 50 * (level - 1) ** 2, to = 50 * level ** 2;
+  const title = LEVEL_TITLES.filter(([l]) => l <= level).pop()[1];
+  return { level, title, xp, levelFrom: from, levelTo: to, levelPct: clamp((xp - from) / (to - from), 0, 1) };
+}
+const Credits = {
+  _v: -1, _m: null,
+  get() {
+    if (this._v === Store.version && this._m) return this._m;
+    let time = 0; const blockDays = new Set();
+    for (const s of state.sessions) { if (!isLive(s) || !s.ended_at) continue; time += blockCredits(s); blockDays.add(dayKeyOf(ms(s.started_at))); }
+    const won = state.settings.achievements || {}; let ach = 0;
+    for (const a of ACHIEVEMENTS) if (won[a.id]) ach += ACH_CREDITS[a.tier] || 0;
+    let closed = 0; for (const [k, e] of Object.entries(state.days.entries || {})) if (e && e.status === 'closed' && blockDays.has(k)) closed++;
+    const parts = { time, achievements: ach, closing: closed * CLOSE_DAY_CREDITS, meditation: meditationDaySet().size * MED_DAY_CREDITS };
+    const earned = parts.time + parts.achievements + parts.closing + parts.meditation;
+    const spent = (state.room.owned || []).reduce((a, o) => a + (+o.price || 0), 0);
+    this._m = { earned, spent, balance: earned - spent, parts, ...levelInfo(earned) }; this._v = Store.version;
+    return this._m;
+  },
+  /* what one day brought in: its blocks, plus the bonus for closing it */
+  forDay(key) {
+    let n = 0; for (const s of state.sessions) if (isLive(s) && s.ended_at && dayKeyOf(ms(s.started_at)) === key) n += blockCredits(s);
+    return n + (n > 0 && isDayLocked(key) ? CLOSE_DAY_CREDITS : 0) + (meditationDaySet().has(key) ? MED_DAY_CREDITS : 0);
+  },
+};

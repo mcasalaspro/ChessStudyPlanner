@@ -34,8 +34,18 @@ function artFloorTex(st) {
 }
 
 /* live layers: `under` is drawn before the picture (seen through transparent glass), `over` after it */
+/* the sky behind a window's cleared glass: where the glass is (ROOM_ART.glass, found when the art is built), clipped
+   to it so nothing of the sky (a passing cloud) shows on the wall around the window */
+function artSky(e, o, rect) {
+  const g = ROOM_ART.glass && ROOM_ART.glass[e[0]];
+  const [x, y, w, h] = (g || rect(artObj(e))).map(f1);
+  if (!g) { const cid = roomDefOnce(`rm-gl-${e[0]}`, `<clipPath><rect x="${x}" y="${y}" width="${w}" height="${h}"/></clipPath>`); return `<g clip-path="url(#${cid})">${skyView(x, y, w, h, o)}</g>`; }
+  // the exact shape of the glass (a white picture made with the art): the sky shows only there
+  const mid = roomDefOnce(`rm-gm-${e[0]}`, `<mask maskUnits="userSpaceOnUse" x="${e[1]}" y="${e[2]}" width="${e[3]}" height="${e[4]}">${artImg(e[0] + '_glass', e[1], e[2], e[3], e[4])}</mask>`);
+  return `<g mask="url(#${mid})">${skyView(x, y, w, h, o)}</g>`;
+}
 const ART_LIVE = {
-  window: { under: (o, e) => { const b = artObj(e); return skyView(f1(b.x + b.w * 0.08), f1(b.y + b.h * 0.06), f1(b.w * 0.84), f1(b.h * 0.8), o); } },
+  window: { under: (o, e) => artSky(e, o, (b) => [b.x + b.w * 0.08, b.y + b.h * 0.06, b.w * 0.84, b.h * 0.8]) },
   wallclock: { over: (o, e) => { const b = artObj(e); const r = Math.min(b.w, b.h) / 2; return clockHands(f1(b.cx), f1(b.cy), f1(r * 0.42), f1(r * 0.6), f1(r * 0.075), f1(r * 0.05), '#2b2118', o) + `<circle cx="${f1(b.cx)}" cy="${f1(b.cy)}" r="${f1(r * 0.06)}" fill="#2b2118"/>`; } },
 };
 
@@ -67,7 +77,7 @@ function artFx(it, o) {
 
 /* every window shows the live sky behind its cleared glass; the dawn window is always at sunrise */
 for (const id of ['window_round', 'window_arch', 'window_tall']) ART_LIVE[id] = ART_LIVE.window;
-ART_LIVE.rw_dawnwindow = { under: (o, e) => { const b = artObj(e); const d = new Date(o.now || Date.now()); d.setHours(6, 30, 0, 0); return skyView(f1(b.x + b.w * 0.06), f1(b.y + b.h * 0.06), f1(b.w * 0.88), f1(b.h * 0.86), { ...o, now: d }); } };
+ART_LIVE.rw_dawnwindow = { under: (o, e) => { const d = new Date(o.now || Date.now()); d.setHours(6, 30, 0, 0); return artSky(e, { ...o, now: d }, (b) => [b.x + b.w * 0.06, b.y + b.h * 0.06, b.w * 0.88, b.h * 0.86]); } };
 
 /* the word of a neon sign, glowing on the Canva acrylic board (the words stay live text) */
 function artNeonWord(text, c, inner, o, size, b) {
@@ -127,12 +137,36 @@ ART_LIVE.trophies = { over: (o, e) => { const S = ROOM_ART.sprites && ROOM_ART.s
   return s; } };
 
 /* the doors between rooms: the Canva door, greyed by code when the room is still locked, with a padlock */
-function artDoor(W, Hh, open) {
+function artDoor(W, Hh, open, wall) {
   const S = ROOM_ART.sprites || {}; if (!S.door) return '';
-  let s = `<g class="rm-door-leaf">${artImg(open ? 'door' : 'door_locked', -7, -6, W + 14, Hh + 6)}</g>`;
+  const pic = [open ? 'door' : 'door_locked', -7, -6, W + 14, Hh + 6];
+  let s = `<g class="rm-door-leaf">${artImg(...pic)}</g>`;
   if (!open && S.padlock) { const [f, pw, ph] = S.padlock; const hh = 30, ww = (hh * pw) / ph; s += artImg(f, f1(W / 2 - ww / 2), f1(Hh * 0.33 - hh / 2), f1(ww), hh); }
-  return s;
+  return artThick('door', wall, pic, s);
 }
+
+/* ---------- what hangs on a wall ----------
+   Flat pictures (front views) are drawn on the wall plane: the wall's projection moves every column of pixels down
+   1 px for every 2 px across (the room's 2:1 isometric), so their edges follow the wall exactly, on either wall.
+   A piece that stands out from the wall gets a thickness: its outline, filled with the colour of its edge
+   (ROOM_ART.side), stacked from the wall to the front face, which is pushed towards the room — left and down on
+   the right wall, right and down on the left wall. Depths in the wall's units (100 = one floor tile). */
+const ART_DEPTH = [[/^(window|window_round|window_arch|window_tall|window_stained|rw_dawnwindow|stringlights|bunting)$/, 0],
+  [/^(tapestry|rw_banner|rw_flag|pennant|macrame_wall|calendar)$/, 2], [/^(poster_|led_)/, 3],
+  [/^(neon|photos|butterflies|rw_dayone|diploma|mirror|board_wall)/, 4],
+  [/^(painting|chalkboard|whiteboard|corkboard|pegboard|map_pins|medals|rw_missionboard|records_wall|tv_wall|rw_weekplaque|rw_goldframe)/, 5],
+  [/^(wallclock|clock_minimal|dartboard|rw_astroclock|clocks_world|door)$/, 6], [/^(cuckoo|shelf_|guitar_wall|sconce_|garden_wall)/, 8], [/^torch$/, 5], [/^ac$/, 18]];
+function artDepth(id) { for (const [re, d] of ART_DEPTH) if (re.test(id)) return d; return 4; }
+/* pic = [file, x, y, w, h] of the picture; inner = everything drawn for the piece (picture and live layers) */
+function artThick(id, wall, pic, inner) {
+  const c = ROOM_ART.side && ROOM_ART.side[id]; const D = c ? artDepth(id) : 0;
+  if (!D || !pic || (wall !== 'L' && wall !== 'R')) return inner;
+  const sx = wall === 'L' ? 1 : -1, ky = ISO.TH / ISO.ZH; const n = Math.max(2, Math.min(8, Math.ceil(D / 1.5)));
+  const fid = roomDefOnce(`rm-side-${c.slice(1)}`, `<filter x="-4%" y="-4%" width="108%" height="108%" color-interpolation-filters="sRGB"><feFlood flood-color="${c}"/><feComposite in2="SourceAlpha" operator="in"/></filter>`);
+  let s = ''; for (let i = 0; i < n; i++) { const t = (D * i) / n; s += artImg(pic[0], f1(pic[1] + sx * t), f1(pic[2] + ky * t), pic[3], pic[4]); }
+  return `<g filter="url(#${fid})">${s}</g><g transform="translate(${f1(sx * D)},${f1(ky * D)})">${inner}</g>`;
+}
+function artWallBody(it, wall, inner) { const e = ROOM_ART.items[it.id]; return e ? artThick(it.id, wall, e, inner) : inner; }
 
 function artDraw(it, o) {
   const e = ROOM_ART.items[it.id];

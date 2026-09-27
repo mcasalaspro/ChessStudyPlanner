@@ -252,9 +252,9 @@ function drawPlaced(e, ctx, { home = false } = {}) {
   const c = { ...ctx, lit: !e.p.off };
   const inner = home ? (artHome(e.it, c) ?? (e.it.home ? e.it.home(c) : '')) : (artDraw(e.it, c) ?? e.it.draw(c));
   const cls = 'rm-item' + (e.it.pet ? ' pet' : '') + (e.it.glow && e.it.glow !== 'window' ? ' light' : '') + (e.p.off ? ' off' : '') + (e.layer === 'hang' ? ' hang' : '');
-  if (e.wall) {
+  if (e.wall) { // drawn on the wall plane (its projection shears the flat picture); pieces that stand out get their thickness
     const [w, hh] = [e.w, e.hh];
-    return `<g class="${cls} wall" data-uid="${e.o.uid}"><g transform="${wallMatrix(e.p.wall, e.p.wall === 'L' ? e.p.u + w : e.p.u, e.p.z)}"><rect x="-4" y="-4" width="${w * 100 + 8}" height="${hh * 100 + 8}" fill="transparent"/>${inner}</g></g>`;
+    return `<g class="${cls} wall" data-uid="${e.o.uid}"><g transform="${wallMatrix(e.p.wall, e.p.wall === 'L' ? e.p.u + w : e.p.u, e.p.z)}"><rect x="-4" y="-4" width="${w * 100 + 8}" height="${hh * 100 + 8}" fill="transparent"/>${home ? inner : artWallBody(e.it, e.p.wall, inner)}</g></g>`;
   }
   // flipped items are mirrored around the footprint's back corner, which swaps the footprint (w,d)
   const tr = `translate(${f1(isoX(e.x, e.y))},${f1(isoY(e.x, e.y))})${e.p.flip ? ' scale(-1,1)' : ''}`;
@@ -269,7 +269,7 @@ function wallFootprint(wall, u, z, w, hh, cls) {
 function doorSvg(dr, ctx, night) {
   const to = roomDef(dr.to); const open = Room.unlocked(dr.to); const W = dr.w * 100, Hh = dr.h * 100;
   const leaf = open ? '#8a5a36' : '#6b625b', leafD = tone(leaf, -0.25), frame = '#5b3620';
-  let art = artDoor(W, Hh, open); // the Canva door (a greyed copy when locked, with its padlock)
+  let art = artDoor(W, Hh, open, dr.wall); // the Canva door (a greyed copy when locked, with its padlock)
   if (!art) { art = `<rect x="-7" y="-6" width="${W + 14}" height="${Hh + 6}" rx="2" fill="${frame}"/><rect x="-3" y="-2" width="${W + 6}" height="${Hh + 2}" fill="${tone(frame, -0.3)}"/>`
     + `<g class="rm-door-leaf"><rect x="0" y="0" width="${W}" height="${Hh}" fill="${leaf}"/>`
     + `<rect x="12" y="14" width="${W - 24}" height="${Hh * 0.36}" rx="3" fill="none" stroke="${leafD}" stroke-width="3"/><rect x="12" y="${Hh * 0.46}" width="${W - 24}" height="${Hh * 0.46}" rx="3" fill="none" stroke="${leafD}" stroke-width="3"/>`
@@ -441,7 +441,12 @@ function itemPreviewSvg(it) {
 function itemPreviewSvgRaw(it) {
   ensureRoomDefs(); const ctx = { ...roomCtx(), lit: true };
   const art = artDraw(it, ctx) ?? it.draw(ctx);
-  if (it.wall) { const [w, hh] = it.wall; return `<svg viewBox="${-22} ${-14} ${w * 100 + 44} ${hh * 100 + 28}" class="prev-svg"><rect x="-22" y="-14" width="${w * 100 + 44}" height="${hh * 100 + 28}" fill="#d9c7a4" rx="6"/>${art}</svg>`; }
+  if (it.wall) { // on a patch of the right wall, projected as in the room
+    const [w, hh] = it.wall; const W = w * 100, H = hh * 100, m = 20; const a = ISO.TW / 200, b = ISO.TH / 200, d = ISO.ZH / 100;
+    const pts = [[-m, -m], [W + m, -m], [W + m, H + m], [-m, H + m]].map(([x, y]) => [a * x, b * x + d * y]);
+    const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]); const x0 = Math.min(...xs) - 3, y0 = Math.min(...ys) - 3;
+    return `<svg viewBox="${f1(x0)} ${f1(y0)} ${f1(Math.max(...xs) + 3 - x0)} ${f1(Math.max(...ys) + 3 - y0)}" class="prev-svg"><polygon points="${pts.map((p) => p.map(f1).join(',')).join(' ')}" fill="#d9c7a4"/><g transform="matrix(${a},${b},0,${d},0,0)">${artWallBody(it, 'R', art)}</g></svg>`;
+  }
   const [w, d] = it.fp; const hgt = it.hgt || 1.2;
   if (it.hang) {
     const top = it.top || ISO.H, low = it.low != null ? it.low : 1.6;
